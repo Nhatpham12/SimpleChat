@@ -33,4 +33,44 @@ conversations.getDirect = (user_id1, user_id2, callback) => {
   });
 };
 
+conversations.insert = (data, callback) => {
+  const sqlString = `INSERT INTO conversations (type, conversation_name, avatar_url, created_by)
+    VALUES (?,?,?,?)`;
+  const values = [
+    data.type,
+    data.conversation_name,
+    data.avatar_url || null,
+    data.created_by,
+  ];
+  db.query(sqlString, values, (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.insertId);
+  });
+};
+
+conversations.update = (conversation_id, data, callback) => {
+  const sqlString = `UPDATE conversations 
+    SET conversaton_name = ?, type = ?, created_by = ?, created_at = ?, avatar_url = ?
+    WHERE conversation_id = ?`;
+  const values = [
+    data.conversation_name,
+    data.type,
+    data.created_by,
+    data.created_at,
+    data.avatar_url || null,
+    conversation_id,
+  ];
+  db.query(sqlString, values, (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+conversations.delete = (conversation_id, callback) => {
+  const sqlString = `DELETE FROM conversations WHERE conversation_id = ?`;
+  db.query(sqlString, [conversation_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
 module.exports = conversations;
