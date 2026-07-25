@@ -16,6 +16,7 @@ CREATE TABLE Users (
     username      VARCHAR(50) NOT NULL UNIQUE,
     email         VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
+    role          ENUM('admin','user') DEFAULT 'user',
     avatar_url    TEXT DEFAULT NULL,
     status        ENUM('online','offline','away') DEFAULT 'offline',
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
