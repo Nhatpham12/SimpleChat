@@ -58,6 +58,12 @@ const usersController = {
   // PUT /api/users/:id
   updateProfile: (req, res) => {
     const { id } = req.params;
+    const userId = req.user.user_id;
+
+    if (parseInt(id) !== userId && req.user.role !== "admin") {
+      return res.status(403).json({ status: "error", message: "Bạn không có quyền cập nhật thông tin người dùng này" });
+    }
+
     const { username, email } = req.body;
 
     if (!username || !email) {
@@ -109,6 +115,12 @@ const usersController = {
   // PATCH /api/users/:id/avatar
   updateAvatar: (req, res) => {
     const { id } = req.params;
+    const userId = req.user.user_id;
+
+    if (parseInt(id) !== userId && req.user.role !== "admin") {
+      return res.status(403).json({ status: "error", message: "Bạn không có quyền cập nhật avatar của người dùng này" });
+    }
+
     const { avatar_url } = req.body;
 
     if (!avatar_url) {
@@ -135,6 +147,12 @@ const usersController = {
   // PATCH /api/users/:id/status
   updateStatus: (req, res) => {
     const { id } = req.params;
+    const userId = req.user.user_id;
+
+    if (parseInt(id) !== userId && req.user.role !== "admin") {
+      return res.status(403).json({ status: "error", message: "Bạn không có quyền cập nhật trạng thái của người dùng này" });
+    }
+
     const { status } = req.body;
 
     const allowedStatuses = ["online", "offline", "away"];

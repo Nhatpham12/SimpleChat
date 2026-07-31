@@ -11,7 +11,7 @@ users.getAll = (callBack) => {
 };
 
 users.getById = (user_id, callBack) => {
-  const sqlString = `SELECT user_id, username, email, role, avatar_url, status, created_at, updated_at 
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, created_at, updated_at 
     FROM Users
     WHERE user_id = ?`;
   db.query(sqlString, [user_id], (err, result) => {
@@ -21,7 +21,7 @@ users.getById = (user_id, callBack) => {
 };
 
 users.getByUsername = (username, callBack) => {
-  const sqlString = `SELECT user_id, email, role, avatar_url, status, created_at, updated_at 
+  const sqlString = `SELECT user_id, email, password_hash, role, avatar_url, status, created_at, updated_at 
     FROM Users
     WHERE username = ?`;
   db.query(sqlString, [username], (err, result) => {
@@ -31,7 +31,7 @@ users.getByUsername = (username, callBack) => {
 };
 
 users.getByEmail = (email, callBack) => {
-  const sqlString = `SELECT user_id, username, role, avatar_url, status, created_at, updated_at 
+  const sqlString = `SELECT user_id, username, password_hash, role, avatar_url, status, created_at, updated_at 
     FROM Users
     WHERE email = ?`;
   db.query(sqlString, [email], (err, result) => {

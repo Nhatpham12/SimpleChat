@@ -19,9 +19,9 @@ conversations.getByUserId = (user_id, callback) => {
 
 conversations.getDirect = (user_id1, user_id2, callback) => {
   const sqlString = `SELECT c.conversation_id, c.type, c.created_at
-    FROM conversation c
-    INNER JOIN participants p1 ON c.conversation_id = p1.conversation_id
-    INNER JOIN participants p2 ON c.conversation_id = p1.conversation_id
+    FROM Conversations c
+    INNER JOIN Participants p1 ON c.conversation_id = p1.conversation_id
+    INNER JOIN Participants p2 ON c.conversation_id = p2.conversation_id
     WHERE c.type = 'direct'
         AND p1.user_id = ?
         AND p2.user_id = ?
@@ -49,14 +49,12 @@ conversations.insert = (data, callback) => {
 };
 
 conversations.update = (conversation_id, data, callback) => {
-  const sqlString = `UPDATE conversations 
-    SET conversaton_name = ?, type = ?, created_by = ?, created_at = ?, avatar_url = ?
+  const sqlString = `UPDATE Conversations 
+    SET conversation_name = ?, type = ?, avatar_url = ?
     WHERE conversation_id = ?`;
   const values = [
     data.conversation_name,
     data.type,
-    data.created_by,
-    data.created_at,
     data.avatar_url || null,
     conversation_id,
   ];

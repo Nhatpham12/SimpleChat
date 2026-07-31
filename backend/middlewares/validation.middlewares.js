@@ -100,4 +100,38 @@ const validateMessage = (req, res, next) => {
   next();
 };
 
-module.exports = { validateLogin, validateRegister, validateMessage };
+const validateChangePassword = (req, res, next) => {
+  const { oldPassword, newPassword } = req.body;
+  if (!oldPassword || !newPassword) {
+    return res.status(400).json({
+      status: "error",
+      message: "Mật khẩu cũ và mới là bắt buộc",
+    });
+  }
+  if (typeof oldPassword !== "string" || typeof newPassword !== "string") {
+    return res.status(400).json({
+      status: "error",
+      message: "Mật khẩu phải là chuỗi",
+    });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({
+      status: "error",
+      message: "Mật khẩu mới phải có ít nhất 8 ký tự",
+    });
+  }
+  if (oldPassword === newPassword) {
+    return res.status(400).json({
+      status: "error",
+      message: "Mật khẩu mới phải khác mật khẩu cũ",
+    });
+  }
+  next();
+};
+
+module.exports = {
+  validateLogin,
+  validateRegister,
+  validateMessage,
+  validateChangePassword,
+};
