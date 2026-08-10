@@ -1,16 +1,7 @@
 const mysql = require("mysql2");
-require("dotenv").config();
+const config = require("../config");
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASS,
-  connectionLimit: 10,
-  queueLimit: 0,
-  charset: "utf8mb4",
-  waitForConnections: true,
-});
+const pool = mysql.createPool(config.database);
 
 pool.on("connection", (connection) => {
   connection.query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");

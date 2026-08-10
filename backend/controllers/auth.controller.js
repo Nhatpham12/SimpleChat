@@ -4,6 +4,7 @@ const users = require("../models/users.model");
 const passwordResets = require("../models/passwordResets.model");
 const emailVerifications = require("../models/emailVerifications.model");
 const jwt = require("jsonwebtoken");
+const config = require("../config");
 
 const SALT_ROUND = 10;
 
@@ -14,9 +15,9 @@ const generateToken = (user) => {
       username: user.username,
       role: user.role,
     },
-    process.env.JWT_SECRET,
+    config.jwt.secret,
     {
-      expiresIn: "24h",
+      expiresIn: config.jwt.expiresIn,
     },
   );
 };

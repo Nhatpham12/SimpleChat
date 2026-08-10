@@ -1,6 +1,16 @@
 const db = require("../common/connect");
 const attachments = (attachments) => {};
 
+attachments.getById = (attachment_id, callback) => {
+  const sqlString = `SELECT attachment_id, message_id, file_url, file_type, file_size, uploaded_at  
+    FROM attachments 
+    WHERE attachment_id = ?`;
+  db.query(sqlString, [attachment_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result[0] || null);
+  });
+};
+
 attachments.getByMessageId = (message_id, callback) => {
   const sqlString = `SELECT message_id, file_url, file_type, file_size, uploaded_at  
     FROM attachments 
