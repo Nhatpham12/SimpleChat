@@ -41,7 +41,11 @@ app.get("/api/test-db", (req, res) => {
   });
 });
 
-// API routes
+// Auth routes — PUBLIC (mounted trước verifyToken)
+const authRoutes = require("./routers/auth.routes");
+app.use("/api/auth", authRoutes);
+
+// Protected API routes
 app.use("/api", verifyToken, apiRouter);
 
 // Global error handler

@@ -1,7 +1,6 @@
 const express = require("express");
 const router = express.Router();
 
-const authRoutes = require("./auth.routes");
 const userRoutes = require("./users.routes");
 const conversationRoutes = require("./conversations.routes");
 const messageRoutes = require("./messages.routes");
@@ -11,7 +10,6 @@ const groupSettingsRoutes = require("./groupSettings.routes");
 const blockedUsersRoutes = require("./blockedUsers.routes");
 const attachmentRoutes = require("./attachments.routes");
 
-router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/conversations", conversationRoutes);
 router.use("/messages", messageRoutes);

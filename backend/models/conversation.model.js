@@ -10,10 +10,13 @@ conversations.getById = (conversation_id, callback) => {
 };
 
 conversations.getByUserId = (user_id, callback) => {
-  const sqlString = `SELECT * FROM conversations where user_id = ?`;
+  const sqlString = `SELECT c.* FROM conversations c
+    INNER JOIN Participants p ON c.conversation_id = p.conversation_id
+    WHERE p.user_id = ?
+    ORDER BY c.created_at DESC`;
   db.query(sqlString, [user_id], (err, result) => {
     if (err) return callback(err, null);
-    callback(null, result[0] || null);
+    callback(null, result);
   });
 };
 

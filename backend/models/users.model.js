@@ -21,7 +21,7 @@ users.getById = (user_id, callBack) => {
 };
 
 users.getByUsername = (username, callBack) => {
-  const sqlString = `SELECT user_id, email, password_hash, role, avatar_url, status, created_at, updated_at 
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, created_at, updated_at 
     FROM Users
     WHERE username = ?`;
   db.query(sqlString, [username], (err, result) => {
