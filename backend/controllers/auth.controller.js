@@ -40,7 +40,13 @@ const normalizeEmail = (email) =>
 const sendOtp = async (model, user, purpose) => {
   const { otp, retryAfter } = await issueOtp(model, user.user_id);
   if (retryAfter) return retryAfter;
-  await sendOtpMail(user.email, otp, purpose, OTP_TTL_MINUTES);
+  try {
+    await sendOtpMail(user.email, otp, purpose, OTP_TTL_MINUTES);
+  } catch (err) {
+    // Huỷ mã chưa gửi được để user thử lại ngay, không bị dính cooldown
+    await promisify(model.invalidateByUserId)(user.user_id);
+    throw err;
+  }
   return 0;
 };
 
@@ -89,9 +95,8 @@ const authController = {
 
     try {
       await sendOtp(emailVerifications, { user_id, email }, "verify");
-    } catch (err) {
-      // Tài khoản đã tạo — user có thể bấm "Gửi lại mã" ở trang xác nhận
-      console.error("Gửi email xác nhận thất bại:", err.message);
+    } catch {
+      // Tài khoản đã tạo — user có thể bấm "Gửi lại mã" ở trang xác nhận (mailer đã log lỗi)
     }
 
     res.status(201).json({
@@ -120,8 +125,8 @@ const authController = {
     if (!user.is_verified) {
       try {
         await sendOtp(emailVerifications, user, "verify");
-      } catch (err) {
-        console.error("Gửi email xác nhận thất bại:", err.message);
+      } catch {
+        // User vẫn được chuyển sang trang xác nhận để bấm "Gửi lại mã" (mailer đã log lỗi)
       }
       return res.status(403).json({
         status: "error",
