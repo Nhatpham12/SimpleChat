@@ -27,7 +27,7 @@ app.use(express.json());
 
 // Public routes
 app.get("/api/test-db", (req, res) => {
-  const sqlString = `SELECT * FROM users`;
+  const sqlString = `SELECT * FROM Users`;
   pool.query(sqlString, (err, results) => {
     if (err) {
       console.error("DB connection failed:", err.message);

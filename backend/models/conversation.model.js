@@ -2,7 +2,7 @@ const db = require("../common/connect");
 const conversations = (conversations) => {};
 
 conversations.getById = (conversation_id, callback) => {
-  const sqlString = `SELECT * FROM conversations where conversation_id = ?`;
+  const sqlString = `SELECT * FROM Conversations where conversation_id = ?`;
   db.query(sqlString, [conversation_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result[0] || null);
@@ -10,7 +10,7 @@ conversations.getById = (conversation_id, callback) => {
 };
 
 conversations.getByUserId = (user_id, callback) => {
-  const sqlString = `SELECT c.* FROM conversations c
+  const sqlString = `SELECT c.* FROM Conversations c
     INNER JOIN Participants p ON c.conversation_id = p.conversation_id
     WHERE p.user_id = ?
     ORDER BY c.created_at DESC`;
@@ -37,7 +37,7 @@ conversations.getDirect = (user_id1, user_id2, callback) => {
 };
 
 conversations.insert = (data, callback) => {
-  const sqlString = `INSERT INTO conversations (type, conversation_name, avatar_url, created_by)
+  const sqlString = `INSERT INTO Conversations (type, conversation_name, avatar_url, created_by)
     VALUES (?,?,?,?)`;
   const values = [
     data.type,
@@ -68,7 +68,7 @@ conversations.update = (conversation_id, data, callback) => {
 };
 
 conversations.delete = (conversation_id, callback) => {
-  const sqlString = `DELETE FROM conversations WHERE conversation_id = ?`;
+  const sqlString = `DELETE FROM Conversations WHERE conversation_id = ?`;
   db.query(sqlString, [conversation_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);

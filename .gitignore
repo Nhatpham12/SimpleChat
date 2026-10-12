@@ -50,7 +50,6 @@ Thumbs.db
 Desktop.ini
 
 # Optional npm dependencies
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 

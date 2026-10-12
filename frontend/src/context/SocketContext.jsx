@@ -22,8 +22,8 @@ export const SocketProvider = ({ children }) => {
     const token = sessionStorage.getItem("token");
     if (!token) return;
 
-    const socketUrl = import.meta.env.PROD ? "http://localhost:5001" : "http://localhost:5001";
-    const newSocket = io(socketUrl, {
+    // undefined → same origin (Vite proxy in dev, nginx in prod)
+    const newSocket = io(import.meta.env.VITE_SOCKET_URL, {
       auth: { token },
       transports: ["websocket", "polling"],
     });
@@ -82,7 +82,10 @@ export const SocketProvider = ({ children }) => {
   };
 
   const markRead = (conversationId, messageId) => {
-    socket?.emit("mark_read", { conversation_id: conversationId, message_id: messageId });
+    socket?.emit("mark_read", {
+      conversation_id: conversationId,
+      message_id: messageId,
+    });
   };
 
   return (

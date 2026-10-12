@@ -3,7 +3,7 @@ const attachments = (attachments) => {};
 
 attachments.getById = (attachment_id, callback) => {
   const sqlString = `SELECT attachment_id, message_id, file_url, file_type, file_size, uploaded_at  
-    FROM attachments 
+    FROM Attachments 
     WHERE attachment_id = ?`;
   db.query(sqlString, [attachment_id], (err, result) => {
     if (err) return callback(err, null);
@@ -13,7 +13,7 @@ attachments.getById = (attachment_id, callback) => {
 
 attachments.getByMessageId = (message_id, callback) => {
   const sqlString = `SELECT message_id, file_url, file_type, file_size, uploaded_at  
-    FROM attachments 
+    FROM Attachments 
     WHERE message_id = ?`;
   db.query(sqlString, [message_id], (err, result) => {
     if (err) return callback(err, null);
@@ -22,7 +22,7 @@ attachments.getByMessageId = (message_id, callback) => {
 };
 
 attachments.insert = (data, callback) => {
-  const sqlString = `INSERT INTO attachments (message_id, file_url, file_type, file_size) 
+  const sqlString = `INSERT INTO Attachments (message_id, file_url, file_type, file_size) 
     VALUES (?, ?, ?, ?)`;
   const values = [
     data.message_id,
@@ -37,7 +37,7 @@ attachments.insert = (data, callback) => {
 };
 
 attachments.delete = (attachment_id, callback) => {
-  const sqlString = `DELETE FROM attachments WHERE attachment_id = ?`;
+  const sqlString = `DELETE FROM Attachments WHERE attachment_id = ?`;
   db.query(sqlString, [attachment_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);

@@ -6,7 +6,7 @@ const adminSeeder = async () => {
   const password = process.env.ADMIN_PASSWORD || "08012005";
   const email = process.env.ADMIN_EMAIL || "nhat88672@gmail.com";
 
-  const checkSql = "SELECT * FROM users WHERE role = 'admin'";
+  const checkSql = "SELECT * FROM Users WHERE role = 'admin'";
   return new Promise((resolve, reject) => {
     db.query(checkSql, async (err, result) => {
       if (err) return reject(err);
@@ -14,7 +14,7 @@ const adminSeeder = async () => {
       if (result.length === 0) {
         console.log("Chưa có admin, đang tạo mới . . .");
         const hash = await bcrypt.hash(password, 10);
-        const insertSql = `INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, 'admin')`;
+        const insertSql = `INSERT INTO Users (username, email, password_hash, role) VALUES (?, ?, ?, 'admin')`;
         db.query(insertSql, [username, email, hash], (err, result) => {
           if (err) return reject(err);
           console.log("Tạo admin thành công!");
