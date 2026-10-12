@@ -19,6 +19,7 @@ CREATE TABLE Users (
     role          ENUM('admin','user') DEFAULT 'user',
     avatar_url    TEXT DEFAULT NULL,
     status        ENUM('online','offline','away') DEFAULT 'offline',
+    is_verified   BOOLEAN NOT NULL DEFAULT FALSE,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -158,6 +159,7 @@ CREATE TABLE EmailVerifications (
     token      VARCHAR(255) NOT NULL,
     expires_at TIMESTAMP NOT NULL,
     is_used    BOOLEAN DEFAULT FALSE,
+    attempts   INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
@@ -171,6 +173,7 @@ CREATE TABLE PasswordResets (
     token      VARCHAR(255) NOT NULL,
     expires_at TIMESTAMP NOT NULL,
     is_used    BOOLEAN DEFAULT FALSE,
+    attempts   INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;

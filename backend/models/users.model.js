@@ -11,7 +11,7 @@ users.getAll = (callBack) => {
 };
 
 users.getById = (user_id, callBack) => {
-  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, created_at, updated_at 
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, created_at, updated_at 
     FROM Users
     WHERE user_id = ?`;
   db.query(sqlString, [user_id], (err, result) => {
@@ -21,7 +21,7 @@ users.getById = (user_id, callBack) => {
 };
 
 users.getByUsername = (username, callBack) => {
-  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, created_at, updated_at 
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, created_at, updated_at 
     FROM Users
     WHERE username = ?`;
   db.query(sqlString, [username], (err, result) => {
@@ -31,7 +31,7 @@ users.getByUsername = (username, callBack) => {
 };
 
 users.getByEmail = (email, callBack) => {
-  const sqlString = `SELECT user_id, username, password_hash, role, avatar_url, status, created_at, updated_at 
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, created_at, updated_at 
     FROM Users
     WHERE email = ?`;
   db.query(sqlString, [email], (err, result) => {
@@ -106,6 +106,22 @@ users.updateStatus = (user_id, status, callback) => {
 users.updateRole = (user_id, role, callback) => {
   const sqlString = `UPDATE Users SET role = ? WHERE user_id = ?`;
   db.query(sqlString, [role, user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+users.setVerified = (user_id, callback) => {
+  const sqlString = `UPDATE Users SET is_verified = TRUE WHERE user_id = ?`;
+  db.query(sqlString, [user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+users.updatePassword = (user_id, password_hash, callback) => {
+  const sqlString = `UPDATE Users SET password_hash = ? WHERE user_id = ?`;
+  db.query(sqlString, [password_hash, user_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);
   });

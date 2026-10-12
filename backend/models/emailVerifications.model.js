@@ -2,7 +2,7 @@ const db = require("../common/connect");
 const emailVerifications = (emailVerifications) => {};
 
 emailVerifications.getByToken = (token, callback) => {
-  const sqlString = `SELECT id, user_id, token, expires_at, is_used, created_at
+  const sqlString = `SELECT id, user_id, token, expires_at, is_used, attempts, created_at
     FROM EmailVerifications 
     WHERE token = ? AND is_used = FALSE`;
   db.query(sqlString, [token], (err, result) => {
@@ -12,10 +12,10 @@ emailVerifications.getByToken = (token, callback) => {
 };
 
 emailVerifications.getByUserId = (user_id, callback) => {
-  const sqlString = `SELECT id, user_id, token, expires_at, is_used, created_at
+  const sqlString = `SELECT id, user_id, token, expires_at, is_used, attempts, created_at
     FROM EmailVerifications 
     WHERE user_id = ? AND is_used = FALSE
-    ORDER BY created_at DESC`;
+    ORDER BY created_at DESC, id DESC`;
   db.query(sqlString, [user_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result[0] || null);
@@ -52,6 +52,22 @@ emailVerifications.deleteExpired = (callback) => {
   db.query(sqlString, (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);
+  });
+};
+
+emailVerifications.incrementAttempts = (id, callback) => {
+  const sqlString = `UPDATE EmailVerifications SET attempts = attempts + 1 WHERE id = ?`;
+  db.query(sqlString, [id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+emailVerifications.invalidateByUserId = (user_id, callback) => {
+  const sqlString = `UPDATE EmailVerifications SET is_used = TRUE WHERE user_id = ? AND is_used = FALSE`;
+  db.query(sqlString, [user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows);
   });
 };
 

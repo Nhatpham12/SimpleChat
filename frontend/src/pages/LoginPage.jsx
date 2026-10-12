@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function LoginPage() {
@@ -9,6 +9,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const notice = location.state?.message;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,7 +21,12 @@ export default function LoginPage() {
       await login(username, password);
       navigate("/chat");
     } catch (err) {
-      setError(err.response?.data?.message || "Đăng nhập thất bại");
+      const data = err.response?.data;
+      if (data?.code === "EMAIL_NOT_VERIFIED") {
+        navigate(`/verify-email?email=${encodeURIComponent(data.data.email)}`);
+        return;
+      }
+      setError(data?.message || "Đăng nhập thất bại");
     } finally {
       setLoading(false);
     }
@@ -40,21 +47,25 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="auth-form">
           {error && <div className="auth-error">{error}</div>}
+          {!error && notice && <div className="auth-success">{notice}</div>}
 
           <div className="form-group">
-            <label htmlFor="username">Username</label>
+            <label htmlFor="username">Username hoặc email</label>
             <input
               id="username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Nhập username"
+              placeholder="Nhập username hoặc email"
               required
             />
           </div>
 
           <div className="form-group">
-            <label htmlFor="password">Mật khẩu</label>
+            <div className="label-row">
+              <label htmlFor="password">Mật khẩu</label>
+              <Link to="/forgot-password">Quên mật khẩu?</Link>
+            </div>
             <input
               id="password"
               type="password"

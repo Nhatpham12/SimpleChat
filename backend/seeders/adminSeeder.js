@@ -14,7 +14,7 @@ const adminSeeder = async () => {
       if (result.length === 0) {
         console.log("Chưa có admin, đang tạo mới . . .");
         const hash = await bcrypt.hash(password, 10);
-        const insertSql = `INSERT INTO Users (username, email, password_hash, role) VALUES (?, ?, ?, 'admin')`;
+        const insertSql = `INSERT INTO Users (username, email, password_hash, role, is_verified) VALUES (?, ?, ?, 'admin', TRUE)`;
         db.query(insertSql, [username, email, hash], (err, result) => {
           if (err) return reject(err);
           console.log("Tạo admin thành công!");

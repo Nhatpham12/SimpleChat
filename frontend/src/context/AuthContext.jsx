@@ -35,22 +35,27 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, [checkAuth]);
 
-  const login = async (username, password) => {
-    const res = await authAPI.login({ username, password });
-    const { user: userData, token } = res.data.data;
+  const saveSession = ({ user: userData, token }) => {
     sessionStorage.setItem("token", token);
     sessionStorage.setItem("user", JSON.stringify(userData));
     setUser(userData);
     return userData;
   };
 
+  const login = async (username, password) => {
+    const res = await authAPI.login({ username, password });
+    return saveSession(res.data.data);
+  };
+
+  // Đăng ký chỉ tạo tài khoản, phải xác nhận OTP email mới đăng nhập được
   const register = async (username, email, password) => {
     const res = await authAPI.register({ username, email, password });
-    const { user: userData, token } = res.data.data;
-    sessionStorage.setItem("token", token);
-    sessionStorage.setItem("user", JSON.stringify(userData));
-    setUser(userData);
-    return userData;
+    return res.data.data.email;
+  };
+
+  const verifyEmail = async (email, otp) => {
+    const res = await authAPI.verifyEmail({ email, otp });
+    return saveSession(res.data.data);
   };
 
   const logout = async () => {
@@ -70,7 +75,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser, checkAuth }}>
+    <AuthContext.Provider value={{ user, loading, login, register, verifyEmail, logout, updateUser, checkAuth }}>
       {children}
     </AuthContext.Provider>
   );

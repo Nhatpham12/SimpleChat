@@ -20,7 +20,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // Chỉ đẩy về /login khi phiên đăng nhập hết hạn, không phải khi nhập sai mật khẩu
+    if (error.response?.status === 401 && sessionStorage.getItem("token")) {
       sessionStorage.removeItem("token");
       sessionStorage.removeItem("user");
       window.location.href = "/login";

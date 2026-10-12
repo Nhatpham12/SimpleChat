@@ -7,6 +7,7 @@ require("dotenv").config();
 
 const pool = require("./common/connect");
 const config = require("./config");
+const migrate = require("./seeders/migrate");
 const adminSeeder = require("./seeders/adminSeeder");
 const { verifyToken } = require("./middlewares/auth.middleware");
 const { globalErrorHandler } = require("./middlewares/errorHandler.middleware");
@@ -71,7 +72,8 @@ io.use((socket, next) => {
 setupSocket(io);
 
 // Start server
-adminSeeder()
+migrate()
+  .then(adminSeeder)
   .then(() => {
     server.listen(config.app.port, () => {
       console.log(`Server running on port ${config.app.port}`);
@@ -79,6 +81,6 @@ adminSeeder()
     });
   })
   .catch((err) => {
-    console.error("Failed to seed admin:", err.message);
+    console.error("Failed to init database:", err.message);
     process.exit(1);
   });

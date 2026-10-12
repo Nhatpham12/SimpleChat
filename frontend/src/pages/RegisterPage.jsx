@@ -29,8 +29,8 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await register(username, email, password);
-      navigate("/chat");
+      const registeredEmail = await register(username, email, password);
+      navigate(`/verify-email?email=${encodeURIComponent(registeredEmail)}`);
     } catch (err) {
       setError(err.response?.data?.message || "Đăng ký thất bại");
     } finally {
