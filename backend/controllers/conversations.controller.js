@@ -2,22 +2,41 @@ const conversations = require("../models/conversation.model");
 const participants = require("../models/participants.model");
 const db = require("../common/connect");
 
+// Cho socket của các thành viên join room mới và báo client tải lại danh sách conversation
+const notifyMembersAdded = (req, conversationId, memberIds) => {
+  const io = req.app.get("io");
+  if (!io) return;
+  memberIds.forEach((memberId) => {
+    io.in(`user:${memberId}`).socketsJoin(`conversation:${conversationId}`);
+    io.to(`user:${memberId}`).emit("conversation_created", { conversation_id: Number(conversationId) });
+  });
+};
+
 const conversationsController = {
   // GET /api/conversations — lấy danh sách conversations của user
   getByUserId: (req, res) => {
     const userId = req.user.user_id;
+    // Với conversation direct, JOIN thêm người còn lại để client hiển thị tên + avatar
     const sqlString = `
-      SELECT c.conversation_id, c.type, c.conversation_name, c.avatar_url, c.created_by, c.created_at
+      SELECT c.conversation_id, c.type, c.conversation_name, c.avatar_url, c.created_by, c.created_at,
+             ou.user_id AS other_user_id, ou.username AS other_username, ou.avatar_url AS other_avatar_url
       FROM Conversations c
-      INNER JOIN Participants p ON c.conversation_id = p.conversation_id
-      WHERE p.user_id = ?
+      INNER JOIN Participants p ON c.conversation_id = p.conversation_id AND p.user_id = ?
+      LEFT JOIN Participants op ON c.type = 'direct' AND op.conversation_id = c.conversation_id AND op.user_id <> ?
+      LEFT JOIN Users ou ON ou.user_id = op.user_id
       ORDER BY c.created_at DESC
     `;
-    db.query(sqlString, [userId], (err, result) => {
+    db.query(sqlString, [userId, userId], (err, result) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi lấy danh sách cuộc trò chuyện" });
       }
-      res.json({ status: "ok", data: result });
+      const data = result.map(({ other_user_id, other_username, other_avatar_url, ...conv }) => ({
+        ...conv,
+        other_user: other_user_id
+          ? { user_id: other_user_id, username: other_username, avatar_url: other_avatar_url }
+          : null,
+      }));
+      res.json({ status: "ok", data });
     });
   },
 
@@ -107,6 +126,7 @@ const conversationsController = {
               if (err) {
                 return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
               }
+              notifyMembersAdded(req, conversationId, [userId, otherUserId]);
               res.status(201).json({ status: "ok", message: "Tạo cuộc trò chuyện thành công", data: { conversation_id: conversationId } });
             });
           });
@@ -132,6 +152,7 @@ const conversationsController = {
           // Thêm các thành viên còn lại
           const uniqueMembers = [...new Set(member_ids.filter((id) => id !== userId))];
           if (uniqueMembers.length === 0) {
+            notifyMembersAdded(req, conversationId, [userId]);
             return res.status(201).json({ status: "ok", message: "Tạo nhóm thành công", data: { conversation_id: conversationId } });
           }
 
@@ -146,6 +167,7 @@ const conversationsController = {
               }
               added++;
               if (added === uniqueMembers.length) {
+                notifyMembersAdded(req, conversationId, [userId, ...uniqueMembers]);
                 res.status(201).json({ status: "ok", message: "Tạo nhóm thành công", data: { conversation_id: conversationId } });
               }
             });
@@ -290,6 +312,7 @@ const conversationsController = {
                 return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
               }
               added++;
+              notifyMembersAdded(req, id, [memberId]);
               if (added + skipped === uniqueMembers.length) {
                 res.json({ status: "ok", message: `Đã thêm ${added} thành viên, bỏ qua ${skipped} đã tồn tại` });
               }
@@ -335,6 +358,7 @@ const conversationsController = {
           if (!success) {
             return res.status(404).json({ status: "error", message: "Thành viên không tồn tại trong nhóm" });
           }
+          req.app.get("io")?.in(`user:${memberId}`).socketsLeave(`conversation:${id}`);
           res.json({ status: "ok", message: "Đã xóa thành viên khỏi nhóm" });
         });
       });

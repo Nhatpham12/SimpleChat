@@ -1,5 +1,6 @@
 const users = require("../../models/users.model");
 const messageStatus = require("../../models/messageStatus.model");
+const participants = require("../../models/participants.model");
 
 const handleMarkRead = (socket) => {
   return (data) => {
@@ -17,17 +18,18 @@ const handleMarkRead = (socket) => {
 const handleJoinConversation = (socket) => {
   return (conversationId) => {
     const userId = socket.user.user_id;
-    socket.join(`conversation:${conversationId}`);
-    console.log(`User ${userId} joined conversation ${conversationId}`);
+    participants.getOne(conversationId, userId, (err, participant) => {
+      if (err || !participant) return;
+      socket.join(`conversation:${conversationId}`);
+      console.log(`User ${userId} joined conversation ${conversationId}`);
+    });
   };
 };
 
-const handleLeaveConversation = (socket) => {
-  return (conversationId) => {
-    const userId = socket.user.user_id;
-    socket.leave(`conversation:${conversationId}`);
-    console.log(`User ${userId} left conversation ${conversationId}`);
-  };
+// Socket được tự join mọi conversation khi kết nối, nên không rời room ở đây
+// (nếu rời, user sẽ không nhận được tin nhắn mới của conversation đó nữa)
+const handleLeaveConversation = () => {
+  return () => {};
 };
 
 module.exports = {

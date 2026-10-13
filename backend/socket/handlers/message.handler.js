@@ -36,6 +36,7 @@ const handleMessage = (socket, io, onlineUsers) => {
               conversation_id,
               sender_id: userId,
               sender_name: sender ? sender.username : "Unknown",
+              sender_avatar: sender ? sender.avatar_url : null,
               content,
               type: type || "text",
               created_at: new Date().toISOString(),

@@ -10,7 +10,7 @@ import TypingIndicator from "../components/TypingIndicator";
 
 export default function ChatPage() {
   const { user, logout } = useAuth();
-  const { socket, onlineUsers, joinConversation, leaveConversation, sendMessage, startTyping, stopTyping, markRead } = useSocket();
+  const { socket, onlineUsers, joinConversation, sendMessage, startTyping, stopTyping, markRead } = useSocket();
   const navigate = useNavigate();
 
   const [conversations, setConversations] = useState([]);
@@ -39,9 +39,12 @@ export default function ChatPage() {
   const fetchConversations = useCallback(async () => {
     try {
       const res = await conversationsAPI.getAll();
-      setConversations(res.data.data || []);
+      const list = res.data.data || [];
+      setConversations(list);
+      return list;
     } catch (err) {
       console.error("Error fetching conversations:", err);
+      return [];
     } finally {
       setLoadingConversations(false);
     }
@@ -65,22 +68,22 @@ export default function ChatPage() {
     }
   }, []);
 
-  useEffect(() => {
-    if (activeConversation) {
-      joinConversation(activeConversation.conversation_id);
-      fetchMessages(activeConversation.conversation_id);
+  const activeConversationId = activeConversation?.conversation_id;
 
-      return () => {
-        leaveConversation(activeConversation.conversation_id);
-      };
+  // Server đã tự join socket vào mọi conversation của user; join ở đây chỉ để chắc chắn.
+  // Không leave khi chuyển cuộc trò chuyện, nếu không sẽ mất tin nhắn realtime của cuộc đó.
+  useEffect(() => {
+    if (activeConversationId) {
+      joinConversation(activeConversationId);
+      fetchMessages(activeConversationId);
     }
-  }, [activeConversation, joinConversation, leaveConversation, fetchMessages]);
+  }, [activeConversationId, joinConversation, fetchMessages]);
 
   useEffect(() => {
     if (!socket) return;
 
     const handleNewMessage = (message) => {
-      if (message.conversation_id === activeConversation?.conversation_id) {
+      if (Number(message.conversation_id) === Number(activeConversation?.conversation_id)) {
         setMessages((prev) => [...prev, message]);
         setTimeout(scrollToBottom, 100);
         markRead(activeConversation.conversation_id);
@@ -104,11 +107,18 @@ export default function ChatPage() {
       }
     };
 
+    // Được thêm vào nhóm / cuộc trò chuyện mới → tải lại sidebar
+    const handleConversationCreated = () => {
+      fetchConversations();
+    };
+
     socket.on("new_message", handleNewMessage);
     socket.on("user_typing", handleUserTyping);
     socket.on("user_stop_typing", handleUserStopTyping);
+    socket.on("conversation_created", handleConversationCreated);
 
     return () => {
+      socket.off("conversation_created", handleConversationCreated);
       socket.off("new_message", handleNewMessage);
       socket.off("user_typing", handleUserTyping);
       socket.off("user_stop_typing", handleUserStopTyping);
@@ -170,9 +180,9 @@ export default function ChatPage() {
         type: "direct",
         member_ids: [otherUser.user_id],
       });
-      await fetchConversations();
+      const list = await fetchConversations();
       const convId = res.data.data.conversation_id;
-      const newConv = {
+      const newConv = list.find((c) => c.conversation_id === convId) || {
         conversation_id: convId,
         type: "direct",
         conversation_name: otherUser.username,
@@ -229,6 +239,10 @@ export default function ChatPage() {
     if (conv.other_user) return conv.other_user;
     return null;
   };
+
+  // Đối tượng truyền cho UserAvatar: người còn lại (direct) hoặc tên/ảnh nhóm (group)
+  const getAvatarSubject = (conv) =>
+    getOtherUser(conv) || { username: getConversationName(conv), avatar_url: conv.avatar_url };
 
   const handleLogout = async () => {
     await logout();
@@ -376,7 +390,7 @@ export default function ChatPage() {
                   onClick={() => setActiveConversation(conv)}
                 >
                   <UserAvatar
-                    user={otherUser || conv}
+                    user={getAvatarSubject(conv)}
                     size={44}
                     showStatus={conv.type === "direct"}
                     isOnline={otherUser ? onlineUsers.includes(otherUser.user_id) : false}
@@ -398,7 +412,7 @@ export default function ChatPage() {
           <>
             <div className="chat-header">
               <UserAvatar
-                user={getOtherUser(activeConversation) || activeConversation}
+                user={getAvatarSubject(activeConversation)}
                 size={40}
                 showStatus={activeConversation.type === "direct"}
                 isOnline={getOtherUser(activeConversation) ? onlineUsers.includes(getOtherUser(activeConversation).user_id) : false}
@@ -428,7 +442,7 @@ export default function ChatPage() {
                   return (
                     <div key={msg.message_id || idx} className={`message ${isOwn ? "own" : "other"}`}>
                       {!isOwn && showAvatar && (
-                        <UserAvatar user={{ username: msg.sender_name }} size={32} />
+                        <UserAvatar user={{ username: msg.sender_name, avatar_url: msg.sender_avatar }} size={32} />
                       )}
                       {!isOwn && !showAvatar && <div style={{ width: 32 }} />}
                       <div className="message-bubble">

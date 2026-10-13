@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useRef } from "react";
+import { createContext, useContext, useEffect, useState, useRef, useCallback } from "react";
 import { io } from "socket.io-client";
 import { useAuth } from "./AuthContext";
 
@@ -61,32 +61,33 @@ export const SocketProvider = ({ children }) => {
     };
   }, [user]);
 
-  const joinConversation = (conversationId) => {
+  // useCallback để các effect phụ thuộc không chạy lại mỗi khi onlineUsers đổi
+  const joinConversation = useCallback((conversationId) => {
     socket?.emit("join_conversation", conversationId);
-  };
+  }, [socket]);
 
-  const leaveConversation = (conversationId) => {
+  const leaveConversation = useCallback((conversationId) => {
     socket?.emit("leave_conversation", conversationId);
-  };
+  }, [socket]);
 
-  const sendMessage = (data) => {
+  const sendMessage = useCallback((data) => {
     socket?.emit("send_message", data);
-  };
+  }, [socket]);
 
-  const startTyping = (conversationId) => {
+  const startTyping = useCallback((conversationId) => {
     socket?.emit("typing_start", conversationId);
-  };
+  }, [socket]);
 
-  const stopTyping = (conversationId) => {
+  const stopTyping = useCallback((conversationId) => {
     socket?.emit("typing_stop", conversationId);
-  };
+  }, [socket]);
 
-  const markRead = (conversationId, messageId) => {
+  const markRead = useCallback((conversationId, messageId) => {
     socket?.emit("mark_read", {
       conversation_id: conversationId,
       message_id: messageId,
     });
-  };
+  }, [socket]);
 
   return (
     <SocketContext.Provider

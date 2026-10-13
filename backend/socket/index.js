@@ -1,4 +1,5 @@
 const users = require("../models/users.model");
+const participants = require("../models/participants.model");
 const { handleMessage } = require("./handlers/message.handler");
 const { handleTypingStart, handleTypingStop } = require("./handlers/typing.handler");
 const {
@@ -18,6 +19,13 @@ const setupSocket = (io) => {
     console.log(`User connected: ${userId} (socket: ${socket.id})`);
 
     addOnlineUser(userId, socket.id);
+
+    // Room cá nhân + tự join tất cả conversation của user để nhận tin nhắn realtime
+    socket.join(`user:${userId}`);
+    participants.getByUserId(userId, (err, rows) => {
+      if (err || !rows) return;
+      rows.forEach((row) => socket.join(`conversation:${row.conversation_id}`));
+    });
 
     users.updateStatus(userId, "online", () => {});
     socket.broadcast.emit("user_online", { user_id: userId });
