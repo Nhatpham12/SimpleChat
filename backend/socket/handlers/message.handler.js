@@ -1,5 +1,5 @@
 const messages = require("../../models/messages.model");
-const participants = require("../../models/participants.model");
+const { canSendMessage } = require("../../common/chatGuard");
 const messageStatus = require("../../models/messageStatus.model");
 const users = require("../../models/users.model");
 const db = require("../../common/connect");
@@ -16,10 +16,11 @@ const handleMessage = (socket, io, onlineUsers) => {
       });
     }
 
-    participants.getOne(conversation_id, userId, (err, participant) => {
-      if (err || !participant) {
+    canSendMessage(conversation_id, userId, (err, reason) => {
+      if (err || reason) {
         return socket.emit("error", {
-          message: "Bạn không phải thành viên cuộc trò chuyện này",
+          message: reason || "Lỗi khi gửi tin nhắn",
+          conversation_id,
         });
       }
 

@@ -1,12 +1,44 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { conversationsAPI } from "../api/conversations";
 import { usersAPI } from "../api/users";
 import { messagesAPI } from "../api/messages";
+import { contactsAPI } from "../api/contacts";
 import UserAvatar from "../components/UserAvatar";
 import TypingIndicator from "../components/TypingIndicator";
+
+const sameId = (a, b) => a != null && b != null && Number(a) === Number(b);
+
+// Giờ nếu là hôm nay, ngày/tháng nếu cũ hơn
+const formatListTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  }
+  return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+};
+
+// Tô đậm phần khớp từ khóa trong kết quả tìm kiếm (không phân biệt hoa thường)
+const highlightText = (text, keyword) => {
+  if (!keyword) return text;
+  const lower = text.toLowerCase();
+  const key = keyword.toLowerCase();
+  const parts = [];
+  let start = 0;
+  let idx = lower.indexOf(key);
+  while (idx !== -1) {
+    if (idx > start) parts.push(text.slice(start, idx));
+    parts.push(<mark key={idx}>{text.slice(idx, idx + key.length)}</mark>);
+    start = idx + key.length;
+    idx = lower.indexOf(key, start);
+  }
+  if (start < text.length) parts.push(text.slice(start));
+  return parts;
+};
 
 export default function ChatPage() {
   const { user, logout } = useAuth();
@@ -28,9 +60,20 @@ export default function ChatPage() {
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
 
+  // Tìm tin nhắn trong cuộc trò chuyện đang mở
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
+  const [messageQuery, setMessageQuery] = useState("");
+  const [messageResults, setMessageResults] = useState([]);
+  const [searchingMessages, setSearchingMessages] = useState(false);
+  const [highlightId, setHighlightId] = useState(null);
+  // true khi đang xem tin nhắn cũ (nhảy tới kết quả tìm kiếm) thay vì tin mới nhất
+  const [viewingOld, setViewingOld] = useState(false);
+
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
+  const conversationsRef = useRef([]);
+  const userSearchSeqRef = useRef(0);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -54,13 +97,26 @@ export default function ChatPage() {
     fetchConversations();
   }, [fetchConversations]);
 
-  const fetchMessages = useCallback(async (conversationId) => {
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  // aroundId: nhảy tới 1 tin nhắn cũ (kết quả tìm kiếm); không có thì tải tin mới nhất
+  const fetchMessages = useCallback(async (conversationId, aroundId) => {
     setLoadingMessages(true);
     try {
-      const res = await messagesAPI.getByConversation(conversationId);
+      const res = aroundId
+        ? await messagesAPI.getAround(conversationId, aroundId)
+        : await messagesAPI.getByConversation(conversationId);
       const data = res.data.data || [];
       setMessages(data.reverse());
-      setTimeout(scrollToBottom, 100);
+      setViewingOld(!!aroundId);
+      setHighlightId(aroundId || null);
+      setTimeout(() => {
+        const target = aroundId && document.getElementById(`msg-${aroundId}`);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+        else scrollToBottom();
+      }, 100);
     } catch (err) {
       console.error("Error fetching messages:", err);
     } finally {
@@ -76,19 +132,76 @@ export default function ChatPage() {
     if (activeConversationId) {
       joinConversation(activeConversationId);
       fetchMessages(activeConversationId);
+      setShowMessageSearch(false);
+      setMessageQuery("");
+      setMessageResults([]);
     }
   }, [activeConversationId, joinConversation, fetchMessages]);
+
+  // Tìm tin nhắn (debounce 300ms)
+  useEffect(() => {
+    const q = messageQuery.trim();
+    if (!showMessageSearch || !activeConversationId || q.length === 0) {
+      setMessageResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearchingMessages(true);
+      try {
+        const res = await messagesAPI.search(activeConversationId, q);
+        if (!cancelled) setMessageResults(res.data.data || []);
+      } catch (err) {
+        console.error("Error searching messages:", err);
+      } finally {
+        if (!cancelled) setSearchingMessages(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [messageQuery, showMessageSearch, activeConversationId]);
 
   useEffect(() => {
     if (!socket) return;
 
     const handleNewMessage = (message) => {
-      if (Number(message.conversation_id) === Number(activeConversation?.conversation_id)) {
-        setMessages((prev) => [...prev, message]);
-        setTimeout(scrollToBottom, 100);
+      if (sameId(message.conversation_id, activeConversation?.conversation_id)) {
+        // Đang xem tin cũ thì không chèn vào cuối (sẽ bị đứt đoạn); bấm "Về tin nhắn mới nhất" để xem
+        if (!viewingOld) {
+          setMessages((prev) => [...prev, message]);
+          setTimeout(scrollToBottom, 100);
+        }
         markRead(activeConversation.conversation_id);
       }
-      fetchConversations();
+
+      // Đưa cuộc trò chuyện có tin mới lên đầu sidebar
+      const exists = conversationsRef.current.some((c) => sameId(c.conversation_id, message.conversation_id));
+      if (!exists) {
+        fetchConversations();
+        return;
+      }
+      setConversations((prev) => {
+        const idx = prev.findIndex((c) => sameId(c.conversation_id, message.conversation_id));
+        if (idx === -1) return prev;
+        const updated = {
+          ...prev[idx],
+          last_message: {
+            message_id: message.message_id,
+            content: message.content,
+            sender_id: message.sender_id,
+            sender_name: message.sender_name,
+            created_at: message.created_at,
+            is_deleted: false,
+          },
+        };
+        return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+      });
+    };
+
+    const handleSocketError = (err) => {
+      if (err?.message) alert(err.message);
     };
 
     const handleUserTyping = ({ user_id, conversation_id }) => {
@@ -116,26 +229,34 @@ export default function ChatPage() {
     socket.on("user_typing", handleUserTyping);
     socket.on("user_stop_typing", handleUserStopTyping);
     socket.on("conversation_created", handleConversationCreated);
+    socket.on("error", handleSocketError);
 
     return () => {
       socket.off("conversation_created", handleConversationCreated);
       socket.off("new_message", handleNewMessage);
       socket.off("user_typing", handleUserTyping);
       socket.off("user_stop_typing", handleUserStopTyping);
+      socket.off("error", handleSocketError);
     };
-  }, [socket, activeConversation, user, markRead, fetchConversations]);
+  }, [socket, activeConversation, viewingOld, user, markRead, fetchConversations]);
 
-  const handleSendMessage = (e) => {
+  const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !activeConversation) return;
 
+    const content = newMessage.trim();
+    setNewMessage("");
+
+    // Đang xem tin cũ → quay về tin mới nhất trước khi gửi
+    if (viewingOld) {
+      await fetchMessages(activeConversation.conversation_id);
+    }
+
     sendMessage({
       conversation_id: activeConversation.conversation_id,
-      content: newMessage.trim(),
+      content,
       type: "text",
     });
-
-    setNewMessage("");
 
     if (isTypingRef.current) {
       stopTyping(activeConversation.conversation_id);
@@ -160,18 +281,66 @@ export default function ChatPage() {
     }, 2000);
   };
 
-  const handleSearchUsers = async (query) => {
+  const handleSearchUsers = useCallback(async (query) => {
     setSearchQuery(query);
     if (query.trim().length < 2) {
       setSearchResults([]);
       return;
     }
+    // Bỏ kết quả của request cũ về sau request mới
+    const seq = ++userSearchSeqRef.current;
     try {
-      const res = await usersAPI.search(query);
-      setSearchResults((res.data.data || []).filter((u) => u.user_id !== user.user_id));
+      const res = await usersAPI.search(query.trim());
+      if (seq === userSearchSeqRef.current) {
+        setSearchResults((res.data.data || []).filter((u) => u.user_id !== user.user_id));
+      }
     } catch (err) {
       console.error("Error searching users:", err);
     }
+  }, [user]);
+
+  // Lời mời được gửi / chấp nhận / hủy ở phía bên kia → cập nhật lại nút trong kết quả tìm kiếm
+  useEffect(() => {
+    if (!socket) return;
+    const refresh = () => {
+      if (showSearch && searchQuery.trim().length >= 2) handleSearchUsers(searchQuery);
+    };
+    socket.on("contact_request", refresh);
+    socket.on("contact_updated", refresh);
+    return () => {
+      socket.off("contact_request", refresh);
+      socket.off("contact_updated", refresh);
+    };
+  }, [socket, showSearch, searchQuery, handleSearchUsers]);
+
+  const updateSearchResult = (userId, changes) => {
+    setSearchResults((prev) => prev.map((u) => (u.user_id === userId ? { ...u, ...changes } : u)));
+  };
+
+  const handleSendFriendRequest = async (target) => {
+    try {
+      const res = await contactsAPI.sendRequest(target.user_id);
+      updateSearchResult(target.user_id, { relation: "outgoing", contact_id: res.data.data?.contact_id });
+    } catch (err) {
+      alert(err.response?.data?.message || "Không gửi được lời mời kết bạn");
+      handleSearchUsers(searchQuery);
+    }
+  };
+
+  const handleAcceptFromSearch = async (target) => {
+    try {
+      await contactsAPI.accept(target.contact_id);
+      updateSearchResult(target.user_id, { relation: "friends" });
+    } catch (err) {
+      alert(err.response?.data?.message || "Không chấp nhận được lời mời");
+      handleSearchUsers(searchQuery);
+    }
+  };
+
+  const openConversationById = async (convId) => {
+    const list = await fetchConversations();
+    const conv = list.find((c) => sameId(c.conversation_id, convId));
+    if (conv) setActiveConversation(conv);
   };
 
   const handleStartConversation = async (otherUser) => {
@@ -180,25 +349,38 @@ export default function ChatPage() {
         type: "direct",
         member_ids: [otherUser.user_id],
       });
-      const list = await fetchConversations();
-      const convId = res.data.data.conversation_id;
-      const newConv = list.find((c) => c.conversation_id === convId) || {
-        conversation_id: convId,
-        type: "direct",
-        conversation_name: otherUser.username,
-        other_user: otherUser,
-      };
-      setActiveConversation(newConv);
-      setShowSearch(false);
-      setSearchQuery("");
-      setSearchResults([]);
+      await openConversationById(res.data.data.conversation_id);
     } catch (err) {
-      if (err.response?.status === 409) {
-        alert("Đã tồn tại cuộc trò chuyện với người này");
+      const existingId = err.response?.data?.data?.conversation_id;
+      if (err.response?.status === 409 && existingId) {
+        await openConversationById(existingId);
       } else {
-        console.error("Error creating conversation:", err);
+        alert(err.response?.data?.message || "Không mở được cuộc trò chuyện");
+        return;
       }
     }
+    setShowSearch(false);
+    setSearchQuery("");
+    setSearchResults([]);
+  };
+
+  // Đến từ trang Danh bạ: mở sẵn cuộc trò chuyện / bảng tìm người dùng
+  const location = useLocation();
+  useEffect(() => {
+    const state = location.state;
+    if (!state) return;
+    if (state.openUserSearch) setShowSearch(true);
+    if (state.conversationId) openConversationById(state.conversationId);
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleJumpToMessage = (result) => {
+    fetchMessages(activeConversation.conversation_id, result.message_id);
+  };
+
+  const handleBackToLatest = () => {
+    fetchMessages(activeConversation.conversation_id);
   };
 
   const handleCreateGroup = async (e) => {
@@ -216,17 +398,27 @@ export default function ChatPage() {
       setGroupName("");
       setSelectedMembers([]);
     } catch (err) {
-      console.error("Error creating group:", err);
+      alert(err.response?.data?.message || "Không tạo được nhóm");
     }
   };
 
+  // Chỉ bạn bè (đã chấp nhận lời mời) mới được thêm vào nhóm
   const loadAllUsers = async () => {
     try {
-      const res = await usersAPI.getAll();
-      setAllUsers((res.data.data || []).filter((u) => u.user_id !== user.user_id));
+      const res = await contactsAPI.getAll();
+      setAllUsers(res.data.data || []);
     } catch (err) {
-      console.error("Error loading users:", err);
+      console.error("Error loading friends:", err);
     }
+  };
+
+  const getPreview = (conv) => {
+    const last = conv.last_message;
+    if (!last) return "Chưa có tin nhắn";
+    const text = last.is_deleted ? "Tin nhắn đã bị xóa" : last.content;
+    if (sameId(last.sender_id, user.user_id)) return `Bạn: ${text}`;
+    if (conv.type === "group" && last.sender_name) return `${last.sender_name}: ${text}`;
+    return text;
   };
 
   const getConversationName = (conv) => {
@@ -314,11 +506,27 @@ export default function ChatPage() {
             />
             <div className="search-results">
               {searchResults.map((u) => (
-                <div key={u.user_id} className="search-result-item" onClick={() => handleStartConversation(u)}>
+                <div
+                  key={u.user_id}
+                  className={`search-result-item ${u.relation === "friends" ? "" : "no-click"}`}
+                  onClick={() => u.relation === "friends" && handleStartConversation(u)}
+                >
                   <UserAvatar user={u} size={36} showStatus isOnline={onlineUsers.includes(u.user_id)} />
                   <div className="search-result-info">
                     <span className="search-result-name">{u.username}</span>
                     <span className="search-result-email">{u.email}</span>
+                  </div>
+                  <div className="search-result-action" onClick={(e) => e.stopPropagation()}>
+                    {u.relation === "friends" && (
+                      <button className="btn-small" onClick={() => handleStartConversation(u)}>Nhắn tin</button>
+                    )}
+                    {u.relation === "none" && (
+                      <button className="btn-small" onClick={() => handleSendFriendRequest(u)}>Kết bạn</button>
+                    )}
+                    {u.relation === "outgoing" && <span className="relation-badge">Chờ chấp nhận</span>}
+                    {u.relation === "incoming" && (
+                      <button className="btn-accept" onClick={() => handleAcceptFromSearch(u)}>Chấp nhận</button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -346,6 +554,9 @@ export default function ChatPage() {
                 required
               />
               <div className="member-select">
+                {allUsers.length === 0 && (
+                  <p className="no-results">Chưa có bạn bè. Hãy kết bạn trước khi tạo nhóm.</p>
+                )}
                 {allUsers.map((u) => (
                   <label key={u.user_id} className="member-option">
                     <input
@@ -396,8 +607,13 @@ export default function ChatPage() {
                     isOnline={otherUser ? onlineUsers.includes(otherUser.user_id) : false}
                   />
                   <div className="conversation-info">
-                    <span className="conversation-name">{getConversationName(conv)}</span>
-                    <span className="conversation-preview">Nhấn để xem tin nhắn</span>
+                    <div className="conversation-top">
+                      <span className="conversation-name">{getConversationName(conv)}</span>
+                      <span className="conversation-time">
+                        {formatListTime(conv.last_message?.created_at)}
+                      </span>
+                    </div>
+                    <span className="conversation-preview">{getPreview(conv)}</span>
                   </div>
                 </div>
               );
@@ -425,7 +641,63 @@ export default function ChatPage() {
                   </span>
                 )}
               </div>
+              <button
+                onClick={() => { setShowMessageSearch(!showMessageSearch); setMessageQuery(""); }}
+                className={`icon-btn header-search-btn ${showMessageSearch ? "active" : ""}`}
+                title="Tìm tin nhắn"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </button>
             </div>
+
+            {showMessageSearch && (
+              <div className="message-search">
+                <input
+                  type="text"
+                  value={messageQuery}
+                  onChange={(e) => setMessageQuery(e.target.value)}
+                  placeholder="Tìm tin nhắn theo nội dung..."
+                  className="search-panel-input"
+                  autoFocus
+                />
+                {messageQuery.trim() && (
+                  <div className="message-search-results">
+                    {searchingMessages && messageResults.length === 0 ? (
+                      <p className="no-results">Đang tìm...</p>
+                    ) : messageResults.length === 0 ? (
+                      <p className="no-results">Không tìm thấy tin nhắn</p>
+                    ) : (
+                      messageResults.map((r) => (
+                        <div
+                          key={r.message_id}
+                          className={`message-search-item ${highlightId === r.message_id ? "active" : ""}`}
+                          onClick={() => handleJumpToMessage(r)}
+                        >
+                          <UserAvatar user={{ username: r.sender_name, avatar_url: r.sender_avatar }} size={28} />
+                          <div className="message-search-info">
+                            <div className="message-search-meta">
+                              <span>{sameId(r.sender_id, user.user_id) ? "Bạn" : r.sender_name}</span>
+                              <span>{new Date(r.created_at).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" })}</span>
+                            </div>
+                            <p className="message-search-content">{highlightText(r.content, messageQuery.trim())}</p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {viewingOld && !loadingMessages && (
+              <div className="viewing-old-banner">
+                <span>Đang xem tin nhắn cũ</span>
+                <button className="link-btn" onClick={handleBackToLatest}>Về tin nhắn mới nhất ↓</button>
+              </div>
+            )}
 
             <div className="chat-messages">
               {loadingMessages ? (
@@ -440,7 +712,11 @@ export default function ChatPage() {
                   const isOwn = msg.sender_id === user.user_id;
                   const showAvatar = idx === 0 || messages[idx - 1]?.sender_id !== msg.sender_id;
                   return (
-                    <div key={msg.message_id || idx} className={`message ${isOwn ? "own" : "other"}`}>
+                    <div
+                      key={msg.message_id || idx}
+                      id={msg.message_id ? `msg-${msg.message_id}` : undefined}
+                      className={`message ${isOwn ? "own" : "other"} ${sameId(highlightId, msg.message_id) ? "highlight" : ""}`}
+                    >
                       {!isOwn && showAvatar && (
                         <UserAvatar user={{ username: msg.sender_name, avatar_url: msg.sender_avatar }} size={32} />
                       )}

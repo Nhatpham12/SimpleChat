@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { contactsAPI } from "../api/contacts";
 import { conversationsAPI } from "../api/conversations";
 import UserAvatar from "../components/UserAvatar";
 
 export default function ContactsPage() {
-  const { user } = useAuth();
-  const { onlineUsers } = useSocket();
+  const { socket, onlineUsers } = useSocket();
   const navigate = useNavigate();
 
   const [friends, setFriends] = useState([]);
@@ -38,23 +36,44 @@ export default function ContactsPage() {
     Promise.all([fetchFriends(), fetchPending()]).finally(() => setLoading(false));
   }, [fetchFriends, fetchPending]);
 
+  // Có lời mời mới / được chấp nhận / bị hủy → tải lại realtime
+  useEffect(() => {
+    if (!socket) return;
+    const refresh = () => {
+      fetchFriends();
+      fetchPending();
+    };
+    socket.on("contact_request", refresh);
+    socket.on("contact_updated", refresh);
+    return () => {
+      socket.off("contact_request", refresh);
+      socket.off("contact_updated", refresh);
+    };
+  }, [socket, fetchFriends, fetchPending]);
+
   const handleAccept = async (contactId) => {
     try {
       await contactsAPI.accept(contactId);
       fetchFriends();
       fetchPending();
     } catch (err) {
-      console.error("Error accepting:", err);
+      alert(err.response?.data?.message || "Không chấp nhận được lời mời");
     }
   };
 
+  // Người nhận: từ chối. Người gửi: hủy lời mời (cùng endpoint)
   const handleReject = async (contactId) => {
     try {
       await contactsAPI.reject(contactId);
       fetchPending();
     } catch (err) {
-      console.error("Error rejecting:", err);
+      alert(err.response?.data?.message || "Không xử lý được lời mời");
     }
+  };
+
+  const handleCancel = async (contactId) => {
+    if (!confirm("Hủy lời mời kết bạn này?")) return;
+    await handleReject(contactId);
   };
 
   const handleRemoveFriend = async (friendId) => {
@@ -67,16 +86,20 @@ export default function ContactsPage() {
     }
   };
 
+  // Mở (hoặc tạo) cuộc trò chuyện 1-1 rồi chuyển sang trang chat và mở luôn cuộc đó
   const handleChat = async (friend) => {
     try {
       const res = await conversationsAPI.create({
         type: "direct",
         member_ids: [friend.user_id],
       });
-      navigate("/chat");
+      navigate("/chat", { state: { conversationId: res.data.data.conversation_id } });
     } catch (err) {
-      if (err.response?.status === 409) {
-        navigate("/chat");
+      const existingId = err.response?.data?.data?.conversation_id;
+      if (err.response?.status === 409 && existingId) {
+        navigate("/chat", { state: { conversationId: existingId } });
+      } else {
+        alert(err.response?.data?.message || "Không mở được cuộc trò chuyện");
       }
     }
   };
@@ -127,7 +150,7 @@ export default function ContactsPage() {
             {friends.length === 0 ? (
               <div className="empty-state">
                 <p>Chưa có bạn bè nào</p>
-                <button onClick={() => navigate("/chat")} className="link-btn">Tìm kiếm người dùng</button>
+                <button onClick={() => navigate("/chat", { state: { openUserSearch: true } })} className="link-btn">Tìm và kết bạn</button>
               </div>
             ) : (
               <div className="contact-list">
@@ -195,10 +218,13 @@ export default function ContactsPage() {
               <div className="contact-list">
                 {pending.outgoing.map((req) => (
                   <div key={req.contact_id} className="contact-item">
-                    <UserAvatar user={{ user_id: req.friend_id }} size={44} />
+                    <UserAvatar user={req.user} size={44} />
                     <div className="contact-info">
-                      <span className="contact-name">User #{req.friend_id}</span>
-                      <span className="contact-status">Đang chờ xác nhận</span>
+                      <span className="contact-name">{req.user?.username}</span>
+                      <span className="contact-status">Đang chờ chấp nhận</span>
+                    </div>
+                    <div className="contact-actions">
+                      <button onClick={() => handleCancel(req.contact_id)} className="btn-reject">Hủy lời mời</button>
                     </div>
                   </div>
                 ))}

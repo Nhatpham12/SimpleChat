@@ -41,17 +41,30 @@ const usersController = {
     }
 
     const db = require("../common/connect");
-    const sqlString = `SELECT user_id, username, email, role, avatar_url, status, created_at, updated_at 
-      FROM Users 
-      WHERE username LIKE ? OR email LIKE ?`;
-    const keyword = `%${q}%`;
-    db.query(sqlString, [keyword, keyword], (err, result) => {
+    const userId = req.user.user_id;
+    // Kèm trạng thái kết bạn với người đang tìm: none | outgoing | incoming | friends
+    const sqlString = `SELECT u.user_id, u.username, u.email, u.role, u.avatar_url, u.status, u.created_at, u.updated_at,
+        uc.contact_id, uc.status AS contact_status, uc.user_id AS contact_requester_id
+      FROM Users u
+      LEFT JOIN UserContacts uc
+        ON (uc.user_id = ? AND uc.friend_id = u.user_id) OR (uc.friend_id = ? AND uc.user_id = u.user_id)
+      WHERE (u.username LIKE ? OR u.email LIKE ?) AND u.user_id <> ?
+      LIMIT 20`;
+    const keyword = `%${q.trim().replace(/[\\%_]/g, "\\$&")}%`;
+    db.query(sqlString, [userId, userId, keyword, keyword, userId], (err, result) => {
       if (err) {
         return res
           .status(500)
           .json({ status: "error", message: "Lỗi khi tìm kiếm người dùng" });
       }
-      res.json({ status: "ok", data: result });
+      const data = result.map(({ contact_status, contact_requester_id, ...u }) => {
+        let relation = "none";
+        if (contact_status === "accepted") relation = "friends";
+        else if (contact_status === "pending") relation = contact_requester_id === userId ? "outgoing" : "incoming";
+        else if (contact_status) relation = contact_status;
+        return { ...u, relation };
+      });
+      res.json({ status: "ok", data });
     });
   },
 

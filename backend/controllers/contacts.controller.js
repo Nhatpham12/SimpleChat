@@ -2,35 +2,22 @@ const userContacts = require("../models/userContacts.model");
 const users = require("../models/users.model");
 const blockedUsers = require("../models/blockedUsers.model");
 
+// Báo realtime cho các user liên quan để client tải lại danh bạ / kết quả tìm kiếm
+const notifyContactChange = (req, userIds, event, payload) => {
+  const io = req.app.get("io");
+  if (!io) return;
+  userIds.forEach((id) => io.to(`user:${id}`).emit(event, payload));
+};
+
 const contactsController = {
   // GET /api/contacts — lấy danh sách bạn bè (đã chấp nhận)
   getAll: (req, res) => {
     const userId = req.user.user_id;
-    userContacts.getByUserId(userId, (err, contacts) => {
+    userContacts.getFriends(userId, (err, friends) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi lấy danh sách liên hệ" });
       }
-
-      const acceptedContacts = contacts.filter((c) => c.status === "accepted");
-      if (acceptedContacts.length === 0) {
-        return res.json({ status: "ok", data: [] });
-      }
-
-      const friendIds = acceptedContacts.map((c) => (c.user_id === userId ? c.friend_id : c.user_id));
-      let friends = [];
-      let loaded = 0;
-
-      friendIds.forEach((friendId) => {
-        users.getById(friendId, (err, user) => {
-          if (!err && user) {
-            friends.push(user);
-          }
-          loaded++;
-          if (loaded === friendIds.length) {
-            res.json({ status: "ok", data: friends });
-          }
-        });
-      });
+      res.json({ status: "ok", data: friends });
     });
   },
 
@@ -42,26 +29,18 @@ const contactsController = {
         return res.status(500).json({ status: "error", message: "Lỗi khi lấy yêu cầu kết bạn" });
       }
 
-      // Phân biệt request gửi đến mình và mình gửi đi
-      const incoming = contacts.filter((c) => c.friend_id === userId && c.status === "pending");
-      const outgoing = contacts.filter((c) => c.user_id === userId && c.status === "pending");
+      // user = người phía bên kia (người gửi với incoming, người nhận với outgoing)
+      const withUser = contacts.map(({ other_id, other_username, other_email, other_avatar_url, ...c }) => ({
+        ...c,
+        user: { user_id: other_id, username: other_username, email: other_email, avatar_url: other_avatar_url },
+      }));
 
-      // Lấy thông tin user cho incoming requests
-      if (incoming.length === 0) {
-        return res.json({ status: "ok", data: { incoming: [], outgoing } });
-      }
-
-      let enrichedIncoming = [];
-      let loaded = 0;
-
-      incoming.forEach((contact) => {
-        users.getById(contact.user_id, (err, user) => {
-          enrichedIncoming.push({ ...contact, user: user || null });
-          loaded++;
-          if (loaded === incoming.length) {
-            res.json({ status: "ok", data: { incoming: enrichedIncoming, outgoing } });
-          }
-        });
+      res.json({
+        status: "ok",
+        data: {
+          incoming: withUser.filter((c) => c.friend_id === userId),
+          outgoing: withUser.filter((c) => c.user_id === userId),
+        },
       });
     });
   },
@@ -69,18 +48,17 @@ const contactsController = {
   // POST /api/contacts/request — gửi yêu cầu kết bạn
   sendRequest: (req, res) => {
     const userId = req.user.user_id;
-    const { friend_id } = req.body;
+    const friendId = parseInt(req.body.friend_id);
 
-    if (!friend_id) {
+    if (!friendId) {
       return res.status(400).json({ status: "error", message: "friend_id là bắt buộc" });
     }
 
-    if (parseInt(friend_id) === userId) {
+    if (friendId === userId) {
       return res.status(400).json({ status: "error", message: "Không thể kết bạn với chính mình" });
     }
 
-    // Kiểm tra friend có tồn tại không
-    users.getById(friend_id, (err, friend) => {
+    users.getById(friendId, (err, friend) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi tìm kiếm người dùng" });
       }
@@ -88,64 +66,48 @@ const contactsController = {
         return res.status(404).json({ status: "error", message: "Không tìm thấy người dùng" });
       }
 
-      // Kiểm tra có bị chặn không
-      blockedUsers.isBlocked(userId, friend_id, (err, blocked) => {
+      // Kiểm tra chặn theo cả 2 chiều
+      blockedUsers.isBlocked(userId, friendId, (err, blocked) => {
         if (err) {
           return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra chặn" });
         }
-        if (blocked) {
-          return res.status(403).json({ status: "error", message: "Không thể gửi yêu cầu kết bạn đến người dùng này" });
-        }
-
-        // Kiểm tra对方 đã chặn mình chưa
-        blockedUsers.isBlocked(friend_id, userId, (err, reverseBlocked) => {
+        blockedUsers.isBlocked(friendId, userId, (err, reverseBlocked) => {
           if (err) {
             return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra chặn" });
           }
-          if (reverseBlocked) {
+          if (blocked || reverseBlocked) {
             return res.status(403).json({ status: "error", message: "Không thể gửi yêu cầu kết bạn đến người dùng này" });
           }
 
-          // Kiểm tra đã tồn tại liên hệ chưa
-          userContacts.getOne(userId, friend_id, (err, existing) => {
+          userContacts.getBetween(userId, friendId, (err, existing) => {
             if (err) {
               return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra liên hệ" });
             }
+
             if (existing) {
-              if (existing.status === "pending") {
-                return res.status(409).json({ status: "error", message: "Đã gửi yêu cầu kết bạn rồi" });
-              }
               if (existing.status === "accepted") {
                 return res.status(409).json({ status: "error", message: "Đã là bạn bè rồi" });
               }
+              if (existing.status === "pending" && existing.user_id === userId) {
+                return res.status(409).json({ status: "error", message: "Đã gửi yêu cầu kết bạn rồi, đang chờ chấp nhận" });
+              }
+              if (existing.status === "pending") {
+                // Người kia đã gửi lời mời cho mình → không tự kết bạn, bắt người dùng bấm "Chấp nhận"
+                return res.status(409).json({
+                  status: "error",
+                  message: "Người này đã gửi lời mời cho bạn, hãy chấp nhận trong mục Yêu cầu",
+                  data: { contact_id: existing.contact_id },
+                });
+              }
+              return res.status(403).json({ status: "error", message: "Không thể gửi yêu cầu kết bạn đến người dùng này" });
             }
 
-            // Kiểm tra对方 đã gửi cho mình chưa
-            userContacts.getOne(friend_id, userId, (err, reverseExisting) => {
+            userContacts.insert({ user_id: userId, friend_id: friendId, status: "pending" }, (err, contactId) => {
               if (err) {
-                return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra liên hệ" });
+                return res.status(500).json({ status: "error", message: "Lỗi khi gửi yêu cầu kết bạn" });
               }
-              if (reverseExisting && reverseExisting.status === "pending") {
-                // Nếu对方 đã gửi cho mình, tự động chấp nhận
-                userContacts.updateStatus(friend_id, userId, "accepted", (err) => {
-                  if (err) {
-                    return res.status(500).json({ status: "error", message: "Lỗi khi chấp nhận kết bạn" });
-                  }
-                  return res.json({ status: "ok", message: "Đã trở thành bạn bè" });
-                });
-                return;
-              }
-              if (reverseExisting && reverseExisting.status === "accepted") {
-                return res.status(409).json({ status: "error", message: "Đã là bạn bè rồi" });
-              }
-
-              // Tạo yêu cầu kết bạn mới
-              userContacts.insert({ user_id: userId, friend_id, status: "pending" }, (err, contactId) => {
-                if (err) {
-                  return res.status(500).json({ status: "error", message: "Lỗi khi gửi yêu cầu kết bạn" });
-                }
-                res.status(201).json({ status: "ok", message: "Đã gửi yêu cầu kết bạn", data: { contact_id: contactId } });
-              });
+              notifyContactChange(req, [friendId], "contact_request", { contact_id: contactId, from_user_id: userId });
+              res.status(201).json({ status: "ok", message: "Đã gửi yêu cầu kết bạn, đang chờ chấp nhận", data: { contact_id: contactId } });
             });
           });
         });
@@ -158,18 +120,13 @@ const contactsController = {
     const { contactId } = req.params;
     const userId = req.user.user_id;
 
-    // Tìm contact theo ID — cần query trực tiếp vì model không có getById
-    const db = require("../common/connect");
-    const sqlString = `SELECT * FROM UserContacts WHERE contact_id = ?`;
-    db.query(sqlString, [contactId], (err, result) => {
+    userContacts.getById(contactId, (err, contact) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi tìm yêu cầu kết bạn" });
       }
-      if (!result || result.length === 0) {
+      if (!contact) {
         return res.status(404).json({ status: "error", message: "Không tìm thấy yêu cầu kết bạn" });
       }
-
-      const contact = result[0];
 
       // Chỉ người nhận mới được chấp nhận
       if (contact.friend_id !== userId) {
@@ -180,94 +137,96 @@ const contactsController = {
         return res.status(400).json({ status: "error", message: "Yêu cầu kết bạn đã được xử lý" });
       }
 
-      userContacts.updateStatus(contact.user_id, contact.friend_id, "accepted", (err, success) => {
+      userContacts.updateStatusById(contact.contact_id, "accepted", (err, success) => {
         if (err) {
           return res.status(500).json({ status: "error", message: "Lỗi khi chấp nhận yêu cầu kết bạn" });
         }
         if (!success) {
           return res.status(404).json({ status: "error", message: "Không tìm thấy yêu cầu kết bạn" });
         }
+        notifyContactChange(req, [contact.user_id, contact.friend_id], "contact_updated", { contact_id: contact.contact_id, status: "accepted" });
         res.json({ status: "ok", message: "Đã chấp nhận yêu cầu kết bạn" });
       });
     });
   },
 
-  // DELETE /api/contacts/reject/:contactId — từ chối yêu cầu kết bạn
+  // DELETE /api/contacts/reject/:contactId — từ chối (người nhận) hoặc hủy (người gửi) yêu cầu kết bạn
   reject: (req, res) => {
     const { contactId } = req.params;
     const userId = req.user.user_id;
 
-    const db = require("../common/connect");
-    const sqlString = `SELECT * FROM UserContacts WHERE contact_id = ?`;
-    db.query(sqlString, [contactId], (err, result) => {
+    userContacts.getById(contactId, (err, contact) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi tìm yêu cầu kết bạn" });
       }
-      if (!result || result.length === 0) {
+      if (!contact) {
         return res.status(404).json({ status: "error", message: "Không tìm thấy yêu cầu kết bạn" });
       }
 
-      const contact = result[0];
-
-      if (contact.friend_id !== userId) {
-        return res.status(403).json({ status: "error", message: "Bạn không có quyền từ chối yêu cầu này" });
+      if (contact.friend_id !== userId && contact.user_id !== userId) {
+        return res.status(403).json({ status: "error", message: "Bạn không có quyền xử lý yêu cầu này" });
       }
 
       if (contact.status !== "pending") {
         return res.status(400).json({ status: "error", message: "Yêu cầu kết bạn đã được xử lý" });
       }
 
-      userContacts.delete(contact.user_id, contact.friend_id, (err, success) => {
+      userContacts.deleteById(contact.contact_id, (err, success) => {
         if (err) {
           return res.status(500).json({ status: "error", message: "Lỗi khi từ chối yêu cầu kết bạn" });
         }
         if (!success) {
           return res.status(404).json({ status: "error", message: "Không tìm thấy yêu cầu kết bạn" });
         }
-        res.json({ status: "ok", message: "Đã từ chối yêu cầu kết bạn" });
+        notifyContactChange(req, [contact.user_id, contact.friend_id], "contact_updated", { contact_id: contact.contact_id, status: "none" });
+        const message = contact.user_id === userId ? "Đã hủy lời mời kết bạn" : "Đã từ chối yêu cầu kết bạn";
+        res.json({ status: "ok", message });
       });
     });
   },
 
   // DELETE /api/contacts/:friendId — hủy bạn bè
   remove: (req, res) => {
-    const { friendId } = req.params;
+    const friendId = parseInt(req.params.friendId);
     const userId = req.user.user_id;
 
-    userContacts.delete(userId, friendId, (err, success) => {
+    userContacts.getBetween(userId, friendId, (err, contact) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi hủy kết bạn" });
       }
-      if (!success) {
-        // Thử theo chiều ngược lại
-        userContacts.delete(friendId, userId, (err2, success2) => {
-          if (err2) {
-            return res.status(500).json({ status: "error", message: "Lỗi khi hủy kết bạn" });
-          }
-          if (!success2) {
-            return res.status(404).json({ status: "error", message: "Không tìm thấy mối quan hệ bạn bè" });
-          }
-          res.json({ status: "ok", message: "Đã hủy kết bạn" });
-        });
-        return;
+      if (!contact || contact.status !== "accepted") {
+        return res.status(404).json({ status: "error", message: "Không tìm thấy mối quan hệ bạn bè" });
       }
-      res.json({ status: "ok", message: "Đã hủy kết bạn" });
+      userContacts.deleteById(contact.contact_id, (err) => {
+        if (err) {
+          return res.status(500).json({ status: "error", message: "Lỗi khi hủy kết bạn" });
+        }
+        notifyContactChange(req, [userId, friendId], "contact_updated", { contact_id: contact.contact_id, status: "none" });
+        res.json({ status: "ok", message: "Đã hủy kết bạn" });
+      });
     });
   },
 
-  // GET /api/contacts/check/:friendId — kiểm tra trạng thái kết bạn
+  // GET /api/contacts/check/:friendId — kiểm tra trạng thái kết bạn (cả 2 chiều)
   checkStatus: (req, res) => {
-    const { friendId } = req.params;
+    const friendId = parseInt(req.params.friendId);
     const userId = req.user.user_id;
 
-    userContacts.getOne(userId, friendId, (err, contact) => {
+    userContacts.getBetween(userId, friendId, (err, contact) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra trạng thái" });
       }
       if (!contact) {
         return res.json({ status: "ok", data: { status: "none" } });
       }
-      res.json({ status: "ok", data: { status: contact.status, contact_id: contact.contact_id } });
+      res.json({
+        status: "ok",
+        data: {
+          status: contact.status,
+          contact_id: contact.contact_id,
+          direction: contact.user_id === userId ? "outgoing" : "incoming",
+        },
+      });
     });
   },
 };

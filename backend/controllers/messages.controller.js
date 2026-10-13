@@ -2,6 +2,7 @@ const messages = require("../models/messages.model");
 const messageStatus = require("../models/messageStatus.model");
 const participants = require("../models/participants.model");
 const db = require("../common/connect");
+const { canSendMessage } = require("../common/chatGuard");
 
 const messagesController = {
   // GET /api/messages/:conversationId — lấy tin nhắn theo conversation (phân trang)
@@ -20,9 +21,46 @@ const messagesController = {
         return res.status(403).json({ status: "error", message: "Bạn không phải thành viên cuộc trò chuyện này" });
       }
 
-      messages.getByConversationId(conversationId, limit, offset, (err, result) => {
+      const done = (err, result) => {
         if (err) {
           return res.status(500).json({ status: "error", message: "Lỗi khi lấy tin nhắn" });
+        }
+        res.json({ status: "ok", data: result });
+      };
+
+      // ?around=<message_id>: lấy tin nhắn xung quanh 1 tin (nhảy tới kết quả tìm kiếm)
+      const around = parseInt(req.query.around);
+      if (around) {
+        return messages.getAround(conversationId, around, Math.ceil(limit / 2), done);
+      }
+      messages.getByConversationId(conversationId, limit, offset, done);
+    });
+  },
+
+  // GET /api/messages/:conversationId/search?q=... — tìm tin nhắn theo nội dung
+  search: (req, res) => {
+    const { conversationId } = req.params;
+    const userId = req.user.user_id;
+    const q = (req.query.q || "").trim();
+
+    if (q.length === 0) {
+      return res.status(400).json({ status: "error", message: "Từ khóa tìm kiếm là bắt buộc" });
+    }
+    if (q.length > 100) {
+      return res.status(400).json({ status: "error", message: "Từ khóa tối đa 100 ký tự" });
+    }
+
+    participants.getOne(conversationId, userId, (err, participant) => {
+      if (err) {
+        return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra thành viên" });
+      }
+      if (!participant) {
+        return res.status(403).json({ status: "error", message: "Bạn không phải thành viên cuộc trò chuyện này" });
+      }
+
+      messages.search(conversationId, q, 50, (err, result) => {
+        if (err) {
+          return res.status(500).json({ status: "error", message: "Lỗi khi tìm kiếm tin nhắn" });
         }
         res.json({ status: "ok", data: result });
       });
@@ -62,13 +100,13 @@ const messagesController = {
       return res.status(400).json({ status: "error", message: `Type phải là một trong: ${validTypes.join(", ")}` });
     }
 
-    // Kiểm tra user là thành viên
-    participants.getOne(conversation_id, userId, (err, participant) => {
+    // Kiểm tra user là thành viên (và là bạn bè nếu chat 1-1)
+    canSendMessage(conversation_id, userId, (err, reason) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra thành viên" });
       }
-      if (!participant) {
-        return res.status(403).json({ status: "error", message: "Bạn không phải thành viên cuộc trò chuyện này" });
+      if (reason) {
+        return res.status(403).json({ status: "error", message: reason });
       }
 
       messages.insert({ conversation_id, sender_id: userId, content, type: msgType }, (err, messageId) => {

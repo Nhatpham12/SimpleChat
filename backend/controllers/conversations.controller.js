@@ -1,5 +1,6 @@
 const conversations = require("../models/conversation.model");
 const participants = require("../models/participants.model");
+const userContacts = require("../models/userContacts.model");
 const db = require("../common/connect");
 
 // Cho socket của các thành viên join room mới và báo client tải lại danh sách conversation
@@ -12,30 +13,158 @@ const notifyMembersAdded = (req, conversationId, memberIds) => {
   });
 };
 
+// Thêm lần lượt các thành viên vào conversation
+const insertMembers = (conversationId, memberIds, callback) => {
+  if (memberIds.length === 0) return callback(null);
+  let added = 0;
+  let failed = false;
+  memberIds.forEach((memberId) => {
+    participants.insert({ conversation_id: conversationId, user_id: memberId, role: "member" }, (err) => {
+      if (failed) return;
+      if (err) {
+        failed = true;
+        return callback(err);
+      }
+      added++;
+      if (added === memberIds.length) callback(null);
+    });
+  });
+};
+
+const createDirect = (req, res, otherUserId) => {
+  const userId = req.user.user_id;
+
+  // Kiểm tra đã có conversation direct chưa
+  const checkSql = `
+    SELECT c.conversation_id
+    FROM Conversations c
+    INNER JOIN Participants p1 ON c.conversation_id = p1.conversation_id AND p1.user_id = ?
+    INNER JOIN Participants p2 ON c.conversation_id = p2.conversation_id AND p2.user_id = ?
+    WHERE c.type = 'direct'
+    LIMIT 1
+  `;
+  db.query(checkSql, [userId, otherUserId], (err, existing) => {
+    if (err) {
+      return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra conversation đã tồn tại" });
+    }
+    if (existing.length > 0) {
+      // Trả kèm id để client mở luôn cuộc trò chuyện cũ
+      return res.status(409).json({
+        status: "error",
+        message: "Đã tồn tại cuộc trò chuyện trực tiếp với người này",
+        data: { conversation_id: existing[0].conversation_id },
+      });
+    }
+
+    conversations.insert({ type: "direct", conversation_name: null, created_by: userId }, (err, conversationId) => {
+      if (err) {
+        return res.status(500).json({ status: "error", message: "Lỗi khi tạo cuộc trò chuyện" });
+      }
+      participants.insert({ conversation_id: conversationId, user_id: userId, role: "admin" }, (err) => {
+        if (err) {
+          return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
+        }
+        insertMembers(conversationId, [otherUserId], (err) => {
+          if (err) {
+            return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
+          }
+          notifyMembersAdded(req, conversationId, [userId, otherUserId]);
+          res.status(201).json({ status: "ok", message: "Tạo cuộc trò chuyện thành công", data: { conversation_id: conversationId } });
+        });
+      });
+    });
+  });
+};
+
+const createGroup = (req, res, conversation_name, memberIds) => {
+  const userId = req.user.user_id;
+
+  if (conversation_name && conversation_name.trim().length > 100) {
+    return res.status(400).json({ status: "error", message: "Tên nhóm không được quá 100 ký tự" });
+  }
+
+  conversations.insert({ type: "group", conversation_name: conversation_name || null, created_by: userId }, (err, conversationId) => {
+    if (err) {
+      return res.status(500).json({ status: "error", message: "Lỗi khi tạo nhóm" });
+    }
+    participants.insert({ conversation_id: conversationId, user_id: userId, role: "admin" }, (err) => {
+      if (err) {
+        return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
+      }
+      insertMembers(conversationId, memberIds, (err) => {
+        if (err) {
+          return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
+        }
+        notifyMembersAdded(req, conversationId, [userId, ...memberIds]);
+        res.status(201).json({ status: "ok", message: "Tạo nhóm thành công", data: { conversation_id: conversationId } });
+      });
+    });
+  });
+};
+
+// Chỉ được chat / thêm vào nhóm những người đã chấp nhận lời mời kết bạn
+const requireFriends = (res, userId, memberIds, next) => {
+  userContacts.filterFriends(userId, memberIds, (err, friendIds) => {
+    if (err) {
+      return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra bạn bè" });
+    }
+    if (friendIds.length !== memberIds.length) {
+      return res.status(403).json({
+        status: "error",
+        message: "Chỉ có thể trò chuyện với người đã chấp nhận lời mời kết bạn",
+      });
+    }
+    next();
+  });
+};
+
 const conversationsController = {
-  // GET /api/conversations — lấy danh sách conversations của user
+  // GET /api/conversations — danh sách conversations của user, mới nhắn gần nhất lên đầu
   getByUserId: (req, res) => {
     const userId = req.user.user_id;
-    // Với conversation direct, JOIN thêm người còn lại để client hiển thị tên + avatar
+    // - Direct: JOIN người còn lại để client hiển thị tên + avatar
+    // - lm: tin nhắn mới nhất (message_id lớn nhất) để hiển thị preview và sắp xếp
     const sqlString = `
       SELECT c.conversation_id, c.type, c.conversation_name, c.avatar_url, c.created_by, c.created_at,
-             ou.user_id AS other_user_id, ou.username AS other_username, ou.avatar_url AS other_avatar_url
+             ou.user_id AS other_user_id, ou.username AS other_username, ou.avatar_url AS other_avatar_url,
+             lm.message_id AS last_message_id, lm.content AS last_content, lm.sender_id AS last_sender_id,
+             lm.created_at AS last_created_at, lm.is_deleted AS last_is_deleted, lu.username AS last_sender_name
       FROM Conversations c
       INNER JOIN Participants p ON c.conversation_id = p.conversation_id AND p.user_id = ?
       LEFT JOIN Participants op ON c.type = 'direct' AND op.conversation_id = c.conversation_id AND op.user_id <> ?
       LEFT JOIN Users ou ON ou.user_id = op.user_id
-      ORDER BY c.created_at DESC
+      LEFT JOIN Messages lm ON lm.message_id = (
+        SELECT MAX(m2.message_id) FROM Messages m2 WHERE m2.conversation_id = c.conversation_id
+      )
+      LEFT JOIN Users lu ON lu.user_id = lm.sender_id
+      ORDER BY COALESCE(lm.created_at, c.created_at) DESC, c.conversation_id DESC
     `;
     db.query(sqlString, [userId, userId], (err, result) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi lấy danh sách cuộc trò chuyện" });
       }
-      const data = result.map(({ other_user_id, other_username, other_avatar_url, ...conv }) => ({
-        ...conv,
-        other_user: other_user_id
-          ? { user_id: other_user_id, username: other_username, avatar_url: other_avatar_url }
-          : null,
-      }));
+      const data = result.map(
+        ({
+          other_user_id, other_username, other_avatar_url,
+          last_message_id, last_content, last_sender_id, last_created_at, last_is_deleted, last_sender_name,
+          ...conv
+        }) => ({
+          ...conv,
+          other_user: other_user_id
+            ? { user_id: other_user_id, username: other_username, avatar_url: other_avatar_url }
+            : null,
+          last_message: last_message_id
+            ? {
+                message_id: last_message_id,
+                content: last_content,
+                sender_id: last_sender_id,
+                sender_name: last_sender_name,
+                created_at: last_created_at,
+                is_deleted: !!last_is_deleted,
+              }
+            : null,
+        })
+      );
       res.json({ status: "ok", data });
     });
   },
@@ -86,95 +215,16 @@ const conversationsController = {
       return res.status(400).json({ status: "error", message: "member_ids phải là mảng không rỗng" });
     }
 
-    // Conversation direct: chỉ 1 người对方
-    if (type === "direct") {
-      if (member_ids.length !== 1) {
-        return res.status(400).json({ status: "error", message: "Conversation direct chỉ có 1 thành viên khác" });
-      }
+    const otherIds = [...new Set(member_ids.map(Number).filter((id) => id && id !== userId))];
 
-      const otherUserId = member_ids[0];
-
-      // Kiểm tra đã có conversation direct chưa
-      const checkSql = `
-        SELECT c.conversation_id
-        FROM Conversations c
-        INNER JOIN Participants p1 ON c.conversation_id = p1.conversation_id AND p1.user_id = ?
-        INNER JOIN Participants p2 ON c.conversation_id = p2.conversation_id AND p2.user_id = ?
-        WHERE c.type = 'direct'
-        LIMIT 1
-      `;
-      db.query(checkSql, [userId, otherUserId], (err, existing) => {
-        if (err) {
-          return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra conversation đã tồn tại" });
-        }
-        if (existing.length > 0) {
-          return res.status(409).json({ status: "error", message: "Đã tồn tại cuộc trò chuyện trực tiếp với người này" });
-        }
-
-        // Tạo conversation direct
-        conversations.insert({ type: "direct", conversation_name: null, created_by: userId }, (err, conversationId) => {
-          if (err) {
-            return res.status(500).json({ status: "error", message: "Lỗi khi tạo cuộc trò chuyện" });
-          }
-
-          // Thêm 2 thành viên
-          participants.insert({ conversation_id: conversationId, user_id: userId, role: "admin" }, (err) => {
-            if (err) {
-              return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
-            }
-            participants.insert({ conversation_id: conversationId, user_id: otherUserId, role: "member" }, (err) => {
-              if (err) {
-                return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
-              }
-              notifyMembersAdded(req, conversationId, [userId, otherUserId]);
-              res.status(201).json({ status: "ok", message: "Tạo cuộc trò chuyện thành công", data: { conversation_id: conversationId } });
-            });
-          });
-        });
-      });
-    } else {
-      // Group conversation
-      if (conversation_name && conversation_name.trim().length > 100) {
-        return res.status(400).json({ status: "error", message: "Tên nhóm không được quá 100 ký tự" });
-      }
-
-      conversations.insert({ type: "group", conversation_name: conversation_name || null, created_by: userId }, (err, conversationId) => {
-        if (err) {
-          return res.status(500).json({ status: "error", message: "Lỗi khi tạo nhóm" });
-        }
-
-        // Thêm creator là admin
-        participants.insert({ conversation_id: conversationId, user_id: userId, role: "admin" }, (err) => {
-          if (err) {
-            return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
-          }
-
-          // Thêm các thành viên còn lại
-          const uniqueMembers = [...new Set(member_ids.filter((id) => id !== userId))];
-          if (uniqueMembers.length === 0) {
-            notifyMembersAdded(req, conversationId, [userId]);
-            return res.status(201).json({ status: "ok", message: "Tạo nhóm thành công", data: { conversation_id: conversationId } });
-          }
-
-          let added = 0;
-          let hasError = false;
-          uniqueMembers.forEach((memberId) => {
-            participants.insert({ conversation_id: conversationId, user_id: memberId, role: "member" }, (err) => {
-              if (hasError) return;
-              if (err) {
-                hasError = true;
-                return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
-              }
-              added++;
-              if (added === uniqueMembers.length) {
-                notifyMembersAdded(req, conversationId, [userId, ...uniqueMembers]);
-                res.status(201).json({ status: "ok", message: "Tạo nhóm thành công", data: { conversation_id: conversationId } });
-              }
-            });
-          });
-        });
-      });
+    if (type === "direct" && otherIds.length !== 1) {
+      return res.status(400).json({ status: "error", message: "Conversation direct chỉ có 1 thành viên khác" });
     }
+
+    requireFriends(res, userId, otherIds, () => {
+      if (type === "direct") return createDirect(req, res, otherIds[0]);
+      createGroup(req, res, conversation_name, otherIds);
+    });
   },
 
   // PUT /api/conversations/:id — cập nhật thông tin conversation (group)
@@ -282,40 +332,42 @@ const conversationsController = {
           return res.status(403).json({ status: "error", message: "Chỉ admin mới được thêm thành viên" });
         }
 
-        let added = 0;
-        let skipped = 0;
-        let hasError = false;
-        const uniqueMembers = [...new Set(member_ids)];
-
+        const uniqueMembers = [...new Set(member_ids.map(Number).filter((mid) => mid && mid !== userId))];
         if (uniqueMembers.length === 0) {
           return res.json({ status: "ok", message: "Không có thành viên mới nào được thêm" });
         }
 
-        uniqueMembers.forEach((memberId) => {
-          participants.getOne(id, memberId, (err, existing) => {
-            if (hasError) return;
-            if (err) {
-              hasError = true;
-              return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra thành viên" });
-            }
-            if (existing) {
-              skipped++;
-              if (added + skipped === uniqueMembers.length) {
-                res.json({ status: "ok", message: `Đã thêm ${added} thành viên, bỏ qua ${skipped} đã tồn tại` });
-              }
-              return;
-            }
-            participants.insert({ conversation_id: id, user_id: memberId, role: "member" }, (err) => {
+        requireFriends(res, userId, uniqueMembers, () => {
+          let added = 0;
+          let skipped = 0;
+          let hasError = false;
+
+          uniqueMembers.forEach((memberId) => {
+            participants.getOne(id, memberId, (err, existing) => {
               if (hasError) return;
               if (err) {
                 hasError = true;
-                return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
+                return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra thành viên" });
               }
-              added++;
-              notifyMembersAdded(req, id, [memberId]);
-              if (added + skipped === uniqueMembers.length) {
-                res.json({ status: "ok", message: `Đã thêm ${added} thành viên, bỏ qua ${skipped} đã tồn tại` });
+              if (existing) {
+                skipped++;
+                if (added + skipped === uniqueMembers.length) {
+                  res.json({ status: "ok", message: `Đã thêm ${added} thành viên, bỏ qua ${skipped} đã tồn tại` });
+                }
+                return;
               }
+              participants.insert({ conversation_id: id, user_id: memberId, role: "member" }, (err) => {
+                if (hasError) return;
+                if (err) {
+                  hasError = true;
+                  return res.status(500).json({ status: "error", message: "Lỗi khi thêm thành viên" });
+                }
+                added++;
+                notifyMembersAdded(req, id, [memberId]);
+                if (added + skipped === uniqueMembers.length) {
+                  res.json({ status: "ok", message: `Đã thêm ${added} thành viên, bỏ qua ${skipped} đã tồn tại` });
+                }
+              });
             });
           });
         });

@@ -977,3 +977,135 @@ a:hover {
     display: flex;
   }
 }
+
+/* Search users: nút kết bạn / trạng thái */
+.search-result-item.no-click {
+  cursor: default;
+}
+
+.search-result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-result-action {
+  flex-shrink: 0;
+}
+
+.search-result-action .btn-small,
+.search-result-action .btn-accept {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.relation-badge {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Sidebar: tên + thời gian tin nhắn mới nhất */
+.conversation-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.conversation-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Tìm tin nhắn trong cuộc trò chuyện */
+.header-search-btn {
+  margin-left: auto;
+}
+
+.header-search-btn.active {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.message-search {
+  padding: 10px 20px;
+  background: var(--bg-white);
+  border-bottom: 1px solid var(--border);
+}
+
+.message-search .search-panel-input {
+  margin-bottom: 0;
+}
+
+.message-search-results {
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.message-search-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.message-search-item:hover,
+.message-search-item.active {
+  background: var(--bg);
+}
+
+.message-search-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-search-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.message-search-meta span:first-child {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.message-search-content {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-search-content mark {
+  background: #fef08a;
+  color: inherit;
+  border-radius: 2px;
+}
+
+.viewing-old-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 20px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--primary-light);
+}
+
+.message.highlight .message-bubble {
+  box-shadow: 0 0 0 3px #facc15;
+  animation: message-flash 1.6s ease-out;
+}
+
+@keyframes message-flash {
+  0%, 30% { box-shadow: 0 0 0 6px #facc15; }
+  100% { box-shadow: 0 0 0 3px #facc15; }
+}
