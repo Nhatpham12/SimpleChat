@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { authAPI } from "../api/auth";
+import { useToast } from "../context/ToastContext";
 import useCountdown from "../hooks/useCountdown";
+import AuthLayout from "../components/AuthLayout";
 
 const RESEND_SECONDS = 60;
 
@@ -11,23 +13,20 @@ export default function ForgotPasswordPage() {
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useCountdown(0);
+  const toast = useToast();
   const navigate = useNavigate();
 
   const sendCode = async () => {
-    setError("");
     setLoading(true);
     try {
       const res = await authAPI.forgotPassword(email);
-      setSuccess(res.data.message);
+      toast.success(res.data.message || `Đã gửi mã tới ${email}`);
       setStep("reset");
       setCooldown(RESEND_SECONDS);
     } catch (err) {
-      setSuccess("");
-      setError(err.response?.data?.message || "Gửi mã thất bại");
+      toast.error(err.response?.data?.message || "Chưa gửi được mã xác nhận");
       const retryAfter = err.response?.data?.data?.retryAfter;
       if (retryAfter) {
         setStep("reset");
@@ -45,91 +44,81 @@ export default function ForgotPasswordPage() {
 
   const handleResetSubmit = async (e) => {
     e.preventDefault();
-    setError("");
 
-    if (newPassword !== confirmPassword) {
-      setError("Mật khẩu xác nhận không khớp");
+    if (newPassword.length < 8) {
+      toast.error("Mật khẩu cần ít nhất 8 ký tự");
       return;
     }
-    if (newPassword.length < 8) {
-      setError("Mật khẩu phải có ít nhất 8 ký tự");
+    if (newPassword !== confirmPassword) {
+      toast.error("Hai mật khẩu chưa khớp nhau");
       return;
     }
 
     setLoading(true);
     try {
       const res = await authAPI.resetPassword({ email, otp, newPassword });
-      navigate("/login", { state: { message: res.data.message } });
+      navigate("/login", { state: { message: res.data.message || "Đã đặt lại mật khẩu. Hãy đăng nhập lại." } });
     } catch (err) {
-      setSuccess("");
-      setError(err.response?.data?.message || "Đặt lại mật khẩu thất bại");
+      toast.error(err.response?.data?.message || "Chưa đặt lại được mật khẩu");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="auth-page">
-      <div className="auth-container">
-        <div className="auth-header">
-          <div className="auth-logo">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-          </div>
-          <h1>Quên mật khẩu</h1>
-          <p>
-            {step === "email"
-              ? "Nhập email để nhận mã xác nhận"
-              : "Nhập mã xác nhận và mật khẩu mới"}
-          </p>
-        </div>
-
-        {step === "email" ? (
-          <form onSubmit={handleEmailSubmit} className="auth-form">
-            {error && <div className="auth-error">{error}</div>}
-
-            <div className="form-group">
-              <label htmlFor="email">Email</label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Nhập email đã đăng ký"
-                required
-                autoFocus
-              />
-            </div>
-
-            <button type="submit" className="auth-btn" disabled={loading}>
-              {loading ? "Đang gửi..." : "Gửi mã xác nhận"}
-            </button>
-          </form>
+    <AuthLayout
+      title="Quên mật khẩu"
+      subtitle={
+        step === "email" ? (
+          "Nhập email đã đăng ký, chúng tôi sẽ gửi mã xác nhận"
         ) : (
-          <form onSubmit={handleResetSubmit} className="auth-form">
-            {error && <div className="auth-error">{error}</div>}
-            {success && <div className="auth-success">{success}</div>}
+          <>
+            Nhập mã gửi tới <strong>{email}</strong> và mật khẩu mới
+          </>
+        )
+      }
+    >
+      {step === "email" ? (
+        <form onSubmit={handleEmailSubmit} className="auth-form">
+          <div className="form-group">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="ban@vidu.com"
+              required
+              autoFocus
+            />
+          </div>
 
-            <div className="form-group">
-              <label htmlFor="otp">Mã xác nhận</label>
-              <input
-                id="otp"
-                className="otp-input"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="______"
-                required
-                minLength={6}
-                maxLength={6}
-                autoFocus
-              />
-            </div>
+          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
+            {loading ? "Đang gửi..." : "Gửi mã xác nhận"}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={handleResetSubmit} className="auth-form">
+          <div className="form-group">
+            <label htmlFor="otp">Mã xác nhận</label>
+            <input
+              id="otp"
+              className="otp-input"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              required
+              minLength={6}
+              maxLength={6}
+              autoFocus
+            />
+          </div>
 
+          <div className="form-row">
             <div className="form-group">
               <label htmlFor="newPassword">Mật khẩu mới</label>
               <input
@@ -138,46 +127,39 @@ export default function ForgotPasswordPage() {
                 autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Tối thiểu 8 ký tự"
+                placeholder="Ít nhất 8 ký tự"
                 required
                 minLength={8}
               />
             </div>
 
             <div className="form-group">
-              <label htmlFor="confirmPassword">Xác nhận mật khẩu mới</label>
+              <label htmlFor="confirmPassword">Nhập lại</label>
               <input
                 id="confirmPassword"
                 type="password"
                 autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Nhập lại mật khẩu mới"
+                placeholder="Nhập lại mật khẩu"
                 required
               />
             </div>
+          </div>
 
-            <button type="submit" className="auth-btn" disabled={loading || otp.length !== 6}>
-              {loading ? "Đang xử lý..." : "Đặt lại mật khẩu"}
-            </button>
+          <button type="submit" className="btn btn-primary btn-block" disabled={loading || otp.length !== 6}>
+            {loading ? "Đang lưu..." : "Đặt lại mật khẩu"}
+          </button>
 
-            <button
-              type="button"
-              className="auth-btn secondary"
-              onClick={sendCode}
-              disabled={loading || cooldown > 0}
-            >
-              {cooldown > 0 ? `Gửi lại mã (${cooldown}s)` : "Gửi lại mã"}
-            </button>
-          </form>
-        )}
+          <button type="button" className="btn btn-ghost btn-block" onClick={sendCode} disabled={loading || cooldown > 0}>
+            {cooldown > 0 ? `Gửi lại mã sau ${cooldown}s` : "Gửi lại mã"}
+          </button>
+        </form>
+      )}
 
-        <div className="auth-footer">
-          <p>
-            <Link to="/login">Quay lại đăng nhập</Link>
-          </p>
-        </div>
-      </div>
-    </div>
+      <p className="auth-footer">
+        <Link to="/login">Quay lại đăng nhập</Link>
+      </p>
+    </AuthLayout>
   );
 }

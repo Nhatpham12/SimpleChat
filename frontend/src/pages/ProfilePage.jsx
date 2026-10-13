@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 import { usersAPI } from "../api/users";
 import { authAPI } from "../api/auth";
 import UserAvatar from "../components/UserAvatar";
+import PageHeader from "../components/PageHeader";
 
 export default function ProfilePage() {
-  const { user, updateUser, logout } = useAuth();
+  const { user, updateUser } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
 
   const [editing, setEditing] = useState(false);
@@ -16,40 +19,33 @@ export default function ProfilePage() {
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
-    setError("");
-    setSuccess("");
     setLoading(true);
-
     try {
       await usersAPI.updateProfile(user.user_id, { username, email });
       updateUser({ ...user, username, email });
       setEditing(false);
-      setSuccess("Cập nhật thành công");
+      toast.success("Đã lưu thông tin hồ sơ");
     } catch (err) {
-      setError(err.response?.data?.message || "Lỗi khi cập nhật");
+      toast.error(err.response?.data?.message || "Chưa lưu được hồ sơ");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleUpdateAvatar = async () => {
+  const handleUpdateAvatar = async (e) => {
+    e.preventDefault();
     if (!avatarUrl.trim()) return;
-    setError("");
-    setSuccess("");
     setLoading(true);
-
     try {
-      await usersAPI.updateAvatar(user.user_id, avatarUrl);
-      updateUser({ ...user, avatar_url: avatarUrl });
-      setSuccess("Cập nhật avatar thành công");
+      await usersAPI.updateAvatar(user.user_id, avatarUrl.trim());
+      updateUser({ ...user, avatar_url: avatarUrl.trim() });
+      toast.success("Đã đổi ảnh đại diện");
     } catch (err) {
-      setError(err.response?.data?.message || "Lỗi khi cập nhật avatar");
+      toast.error(err.response?.data?.message || "Chưa đổi được ảnh đại diện");
     } finally {
       setLoading(false);
     }
@@ -57,134 +53,136 @@ export default function ProfilePage() {
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
-    setError("");
-    setSuccess("");
+    if (newPassword.length < 8) {
+      toast.error("Mật khẩu mới cần ít nhất 8 ký tự");
+      return;
+    }
     setLoading(true);
-
     try {
       await authAPI.changePassword({ oldPassword, newPassword });
-      setSuccess("Đổi mật khẩu thành công");
+      toast.success("Đã đổi mật khẩu");
       setShowPasswordForm(false);
       setOldPassword("");
       setNewPassword("");
     } catch (err) {
-      setError(err.response?.data?.message || "Lỗi khi đổi mật khẩu");
+      toast.error(err.response?.data?.message || "Chưa đổi được mật khẩu");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (!confirm("Bạn có chắc muốn xóa tài khoản? Hành động này không thể hoàn tác.")) return;
-    try {
-      await usersAPI.deleteAccount?.(user.user_id);
-      await logout();
-      navigate("/login");
-    } catch (err) {
-      setError("Lỗi khi xóa tài khoản");
-    }
-  };
-
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <button onClick={() => navigate("/chat")} className="back-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-        </button>
-        <h2>Hồ sơ</h2>
-      </div>
+    <div className="page">
+      <PageHeader title="Hồ sơ" onBack={() => navigate("/chat")} />
 
-      <div className="profile-content">
-        <div className="profile-avatar-section">
-          <UserAvatar user={user} size={100} showStatus isOnline />
-          <div className="avatar-edit">
+      <div className="page-body">
+        <section className="profile-hero">
+          <UserAvatar user={user} size={88} />
+          <div>
+            <h2>{user?.username}</h2>
+            <p>{user?.email}</p>
+            {user?.role === "admin" && <span className="role-badge">Quản trị viên</span>}
+          </div>
+        </section>
+
+        <section className="panel">
+          <h3 className="panel-title">Ảnh đại diện</h3>
+          <form className="inline-form" onSubmit={handleUpdateAvatar}>
             <input
-              type="text"
+              type="url"
               value={avatarUrl}
               onChange={(e) => setAvatarUrl(e.target.value)}
-              placeholder="URL avatar mới"
-              className="avatar-input"
+              placeholder="Dán đường dẫn ảnh (https://...)"
+              className="input"
             />
-            <button onClick={handleUpdateAvatar} className="btn-small" disabled={loading || !avatarUrl.trim()}>
-              Cập nhật avatar
+            <button type="submit" className="btn btn-primary" disabled={loading || !avatarUrl.trim()}>
+              Đổi ảnh
             </button>
-          </div>
-        </div>
+          </form>
+        </section>
 
-        {error && <div className="auth-error">{error}</div>}
-        {success && <div className="auth-success">{success}</div>}
-
-        {!editing ? (
-          <div className="profile-info">
-            <div className="info-row">
-              <label>Username</label>
-              <span>{user?.username}</span>
-            </div>
-            <div className="info-row">
-              <label>Email</label>
-              <span>{user?.email}</span>
-            </div>
-            <div className="info-row">
-              <label>Vai trò</label>
-              <span className={`role-badge ${user?.role}`}>{user?.role}</span>
-            </div>
-            <div className="info-row">
-              <label>Trạng thái</label>
-              <span className={`status-text ${user?.status}`}>{user?.status}</span>
-            </div>
-            <div className="profile-actions">
-              <button onClick={() => { setEditing(true); setUsername(user?.username); setEmail(user?.email); }} className="auth-btn">
-                Chỉnh sửa hồ sơ
+        <section className="panel">
+          <div className="panel-head">
+            <h3 className="panel-title">Thông tin tài khoản</h3>
+            {!editing && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setEditing(true);
+                  setUsername(user?.username);
+                  setEmail(user?.email);
+                }}
+              >
+                Sửa
               </button>
-              <button onClick={() => setShowPasswordForm(!showPasswordForm)} className="auth-btn secondary">
+            )}
+          </div>
+
+          {!editing ? (
+            <dl className="info-list">
+              <div className="info-row">
+                <dt>Username</dt>
+                <dd>{user?.username}</dd>
+              </div>
+              <div className="info-row">
+                <dt>Email</dt>
+                <dd>{user?.email}</dd>
+              </div>
+            </dl>
+          ) : (
+            <form onSubmit={handleUpdateProfile} className="stack-form">
+              <div className="form-group">
+                <label htmlFor="pf-username">Username</label>
+                <input id="pf-username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
+              </div>
+              <div className="form-group">
+                <label htmlFor="pf-email">Email</label>
+                <input id="pf-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              </div>
+              <div className="form-actions">
+                <button type="button" onClick={() => setEditing(false)} className="btn btn-ghost">
+                  Hủy
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={loading}>
+                  {loading ? "Đang lưu..." : "Lưu thay đổi"}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h3 className="panel-title">Mật khẩu</h3>
+            {!showPasswordForm && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowPasswordForm(true)}>
                 Đổi mật khẩu
               </button>
-            </div>
+            )}
           </div>
-        ) : (
-          <form onSubmit={handleUpdateProfile} className="profile-form">
-            <div className="form-group">
-              <label>Username</label>
-              <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
-            </div>
-            <div className="form-group">
-              <label>Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
-            <div className="profile-actions">
-              <button type="submit" className="auth-btn" disabled={loading}>
-                {loading ? "Đang lưu..." : "Lưu"}
-              </button>
-              <button type="button" onClick={() => setEditing(false)} className="auth-btn secondary">
-                Hủy
-              </button>
-            </div>
-          </form>
-        )}
 
-        {showPasswordForm && (
-          <form onSubmit={handleChangePassword} className="profile-form">
-            <h3>Đổi mật khẩu</h3>
-            <div className="form-group">
-              <label>Mật khẩu cũ</label>
-              <input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} required />
-            </div>
-            <div className="form-group">
-              <label>Mật khẩu mới</label>
-              <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} />
-            </div>
-            <div className="profile-actions">
-              <button type="submit" className="auth-btn" disabled={loading}>
-                {loading ? "Đang lưu..." : "Đổi mật khẩu"}
-              </button>
-              <button type="button" onClick={() => setShowPasswordForm(false)} className="auth-btn secondary">
-                Hủy
-              </button>
-            </div>
-          </form>
-        )}
+          {showPasswordForm && (
+            <form onSubmit={handleChangePassword} className="stack-form">
+              <div className="form-group">
+                <label htmlFor="pf-old">Mật khẩu hiện tại</label>
+                <input id="pf-old" type="password" autoComplete="current-password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} required />
+              </div>
+              <div className="form-group">
+                <label htmlFor="pf-new">Mật khẩu mới</label>
+                <input id="pf-new" type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Ít nhất 8 ký tự" required minLength={8} />
+              </div>
+              <div className="form-actions">
+                <button type="button" onClick={() => setShowPasswordForm(false)} className="btn btn-ghost">
+                  Hủy
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={loading}>
+                  {loading ? "Đang lưu..." : "Đổi mật khẩu"}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
       </div>
     </div>
   );

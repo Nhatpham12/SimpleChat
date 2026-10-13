@@ -1,63 +1,26 @@
+// Màu nền chữ cái đầu: tông trầm hợp với nền xanh lá sen
+const colors = ["#24655e", "#3e6fa8", "#7a4fa3", "#b0476e", "#b7652b", "#5b7f2c", "#2c7f8a", "#8a5a44"];
+
 export default function UserAvatar({ user, size = 40, showStatus = false, isOnline = false }) {
-  const initials = user?.username
-    ? user.username.charAt(0).toUpperCase()
-    : "?";
-
-  const colors = [
-    "#4f46e5", "#7c3aed", "#db2777", "#dc2626",
-    "#ea580c", "#ca8a04", "#16a34a", "#0891b2",
-    "#2563eb", "#9333ea", "#c026d3", "#e11d48",
-  ];
-
-  const colorIndex = user?.username
-    ? user.username.charCodeAt(0) % colors.length
-    : 0;
+  const name = user?.username || "";
+  const initials = name ? name.trim().charAt(0).toUpperCase() : "?";
+  const colorIndex = name ? [...name].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % colors.length : 0;
 
   return (
-    <div className="user-avatar" style={{ width: size, height: size, position: "relative" }}>
+    <div className="user-avatar" style={{ width: size, height: size }}>
       {user?.avatar_url ? (
-        <img
-          src={user.avatar_url}
-          alt={user.username}
-          style={{
-            width: size,
-            height: size,
-            borderRadius: "50%",
-            objectFit: "cover",
-          }}
-        />
+        <img src={user.avatar_url} alt="" />
       ) : (
         <div
-          style={{
-            width: size,
-            height: size,
-            borderRadius: "50%",
-            backgroundColor: colors[colorIndex],
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "white",
-            fontWeight: 600,
-            fontSize: size * 0.4,
-          }}
+          className="avatar-initials"
+          style={{ backgroundColor: colors[colorIndex], fontSize: Math.round(size * 0.42) }}
+          aria-hidden="true"
         >
           {initials}
         </div>
       )}
       {showStatus && (
-        <span
-          className={`status-dot ${isOnline ? "online" : "offline"}`}
-          style={{
-            position: "absolute",
-            bottom: 0,
-            right: 0,
-            width: size * 0.28,
-            height: size * 0.28,
-            borderRadius: "50%",
-            border: "2px solid white",
-            backgroundColor: isOnline ? "#22c55e" : "#9ca3af",
-          }}
-        />
+        <span className={`status-dot ${isOnline ? "online" : ""}`} aria-label={isOnline ? "Đang hoạt động" : "Ngoại tuyến"} />
       )}
     </div>
   );

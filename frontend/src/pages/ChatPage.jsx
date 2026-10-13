@@ -1,13 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
+import { useToast } from "../context/ToastContext";
 import { conversationsAPI } from "../api/conversations";
 import { usersAPI } from "../api/users";
 import { messagesAPI } from "../api/messages";
 import { contactsAPI } from "../api/contacts";
 import UserAvatar from "../components/UserAvatar";
 import TypingIndicator from "../components/TypingIndicator";
+import Logo from "../components/Logo";
 
 const sameId = (a, b) => a != null && b != null && Number(a) === Number(b);
 
@@ -22,28 +24,110 @@ const formatListTime = (value) => {
   return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
 };
 
-// Tô đậm phần khớp từ khóa trong kết quả tìm kiếm (không phân biệt hoa thường)
+// Nhãn ngày chia nhóm tin nhắn
+const formatDayLabel = (value) => {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return "Hôm nay";
+  if (date.toDateString() === yesterday.toDateString()) return "Hôm qua";
+  return date.toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "numeric", year: "numeric" });
+};
+
+const formatTime = (value) =>
+  new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+
+// Bỏ dấu + chữ thường từng ký tự (giữ nguyên độ dài để map vị trí về chuỗi gốc)
+// (emoji 2 đơn vị UTF-16 → 1 ký tự giữ chỗ để vị trí không lệch)
+const foldChar = (ch) => {
+  if (ch.length > 1) return "￿";
+  const f = ch.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
+  return f.length === 1 ? f : ch;
+};
+
+// Tô sáng phần khớp từ khóa, không phân biệt hoa thường và dấu (giống cách server tìm)
 const highlightText = (text, keyword) => {
   if (!keyword) return text;
-  const lower = text.toLowerCase();
-  const key = keyword.toLowerCase();
+  const chars = Array.from(text);
+  const folded = chars.map(foldChar).join("");
+  const key = Array.from(keyword).map(foldChar).join("");
+  if (folded.length !== chars.length || !key) return text;
   const parts = [];
   let start = 0;
-  let idx = lower.indexOf(key);
+  let idx = folded.indexOf(key);
   while (idx !== -1) {
-    if (idx > start) parts.push(text.slice(start, idx));
-    parts.push(<mark key={idx}>{text.slice(idx, idx + key.length)}</mark>);
+    if (idx > start) parts.push(chars.slice(start, idx).join(""));
+    parts.push(<mark key={idx}>{chars.slice(idx, idx + key.length).join("")}</mark>);
     start = idx + key.length;
-    idx = lower.indexOf(key, start);
+    idx = folded.indexOf(key, start);
   }
-  if (start < text.length) parts.push(text.slice(start));
+  if (start < chars.length) parts.push(chars.slice(start).join(""));
   return parts;
+};
+
+const Icon = {
+  addUser: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <line x1="19" y1="8" x2="19" y2="14" />
+      <line x1="22" y1="11" x2="16" y2="11" />
+    </svg>
+  ),
+  group: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+  contacts: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      <circle cx="12" cy="9" r="2.5" />
+      <path d="M8.5 14c.6-1.4 2-2 3.5-2s2.9.6 3.5 2" />
+    </svg>
+  ),
+  logout: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  ),
+  search: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="11" cy="11" r="7.5" />
+      <line x1="21" y1="21" x2="16.5" y2="16.5" />
+    </svg>
+  ),
+  back: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m15 18-6-6 6-6" />
+    </svg>
+  ),
+  close: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  ),
+  send: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 2 11 13" />
+      <path d="M22 2 15 22l-4-9-9-4 20-7z" />
+    </svg>
+  ),
 };
 
 export default function ChatPage() {
   const { user, logout } = useAuth();
   const { socket, onlineUsers, joinConversation, sendMessage, startTyping, stopTyping, markRead } = useSocket();
+  const toast = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
@@ -52,13 +136,16 @@ export default function ChatPage() {
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [typingUsers, setTypingUsers] = useState({});
+  const [conversationFilter, setConversationFilter] = useState("");
+  const [pendingCount, setPendingCount] = useState(0);
+
+  // Bảng phụ trong sidebar: null | "people" (tìm & kết bạn) | "group" (tạo nhóm)
+  const [panel, setPanel] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
-  const [showSearch, setShowSearch] = useState(false);
-  const [showNewGroup, setShowNewGroup] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [selectedMembers, setSelectedMembers] = useState([]);
-  const [allUsers, setAllUsers] = useState([]);
+  const [friendsForGroup, setFriendsForGroup] = useState([]);
 
   // Tìm tin nhắn trong cuộc trò chuyện đang mở
   const [showMessageSearch, setShowMessageSearch] = useState(false);
@@ -74,6 +161,7 @@ export default function ChatPage() {
   const isTypingRef = useRef(false);
   const conversationsRef = useRef([]);
   const userSearchSeqRef = useRef(0);
+  const composerRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -93,13 +181,32 @@ export default function ChatPage() {
     }
   }, []);
 
+  const fetchPendingCount = useCallback(async () => {
+    try {
+      const res = await contactsAPI.getPending();
+      setPendingCount(res.data.data?.incoming?.length || 0);
+    } catch (err) {
+      console.error("Error fetching pending:", err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchConversations();
-  }, [fetchConversations]);
+    fetchPendingCount();
+  }, [fetchConversations, fetchPendingCount]);
 
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  // Số tin chưa đọc hiện trên tiêu đề tab trình duyệt
+  const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  useEffect(() => {
+    document.title = totalUnread > 0 ? `(${totalUnread}) SimpleChat` : "SimpleChat";
+    return () => {
+      document.title = "SimpleChat";
+    };
+  }, [totalUnread]);
 
   // aroundId: nhảy tới 1 tin nhắn cũ (kết quả tìm kiếm); không có thì tải tin mới nhất
   const fetchMessages = useCallback(async (conversationId, aroundId) => {
@@ -115,28 +222,34 @@ export default function ChatPage() {
       setTimeout(() => {
         const target = aroundId && document.getElementById(`msg-${aroundId}`);
         if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
-        else scrollToBottom();
-      }, 100);
+        else messagesEndRef.current?.scrollIntoView();
+      }, 60);
     } catch (err) {
       console.error("Error fetching messages:", err);
+      toast.error("Chưa tải được tin nhắn. Thử mở lại cuộc trò chuyện.");
     } finally {
       setLoadingMessages(false);
     }
-  }, []);
+  }, [toast]);
 
   const activeConversationId = activeConversation?.conversation_id;
 
   // Server đã tự join socket vào mọi conversation của user; join ở đây chỉ để chắc chắn.
   // Không leave khi chuyển cuộc trò chuyện, nếu không sẽ mất tin nhắn realtime của cuộc đó.
   useEffect(() => {
-    if (activeConversationId) {
-      joinConversation(activeConversationId);
-      fetchMessages(activeConversationId);
-      setShowMessageSearch(false);
-      setMessageQuery("");
-      setMessageResults([]);
-    }
-  }, [activeConversationId, joinConversation, fetchMessages]);
+    if (!activeConversationId) return;
+    joinConversation(activeConversationId);
+    fetchMessages(activeConversationId);
+    markRead(activeConversationId);
+    setConversations((prev) =>
+      prev.map((c) => (sameId(c.conversation_id, activeConversationId) ? { ...c, unread_count: 0 } : c))
+    );
+    setShowMessageSearch(false);
+    setMessageQuery("");
+    setMessageResults([]);
+    setTypingUsers({});
+    setTimeout(() => composerRef.current?.focus(), 0);
+  }, [activeConversationId, joinConversation, fetchMessages, markRead]);
 
   // Tìm tin nhắn (debounce 300ms)
   useEffect(() => {
@@ -163,22 +276,53 @@ export default function ChatPage() {
     };
   }, [messageQuery, showMessageSearch, activeConversationId]);
 
+  const getConversationName = (conv) => {
+    if (conv.type === "group") return conv.conversation_name || "Nhóm chưa đặt tên";
+    if (conv.other_user) return conv.other_user.username;
+    return `Cuộc trò chuyện #${conv.conversation_id}`;
+  };
+
+  const getOtherUser = (conv) => conv.other_user || null;
+
+  // Đối tượng truyền cho UserAvatar: người còn lại (direct) hoặc tên/ảnh nhóm (group)
+  const getAvatarSubject = (conv) =>
+    getOtherUser(conv) || { username: getConversationName(conv), avatar_url: conv.avatar_url };
+
   useEffect(() => {
     if (!socket) return;
 
     const handleNewMessage = (message) => {
-      if (sameId(message.conversation_id, activeConversation?.conversation_id)) {
+      const isActive = sameId(message.conversation_id, activeConversation?.conversation_id);
+      const isOwn = sameId(message.sender_id, user.user_id);
+
+      if (isActive) {
         // Đang xem tin cũ thì không chèn vào cuối (sẽ bị đứt đoạn); bấm "Về tin nhắn mới nhất" để xem
         if (!viewingOld) {
           setMessages((prev) => [...prev, message]);
-          setTimeout(scrollToBottom, 100);
+          setTimeout(scrollToBottom, 60);
         }
         markRead(activeConversation.conversation_id);
       }
 
-      // Đưa cuộc trò chuyện có tin mới lên đầu sidebar
-      const exists = conversationsRef.current.some((c) => sameId(c.conversation_id, message.conversation_id));
-      if (!exists) {
+      const conv = conversationsRef.current.find((c) => sameId(c.conversation_id, message.conversation_id));
+
+      // Pop-up khi tin đến ở cuộc trò chuyện khác, hoặc khi đang ở tab khác
+      if (!isOwn && (!isActive || document.hidden)) {
+        const isGroup = conv?.type === "group";
+        toast.show({
+          type: "message",
+          key: `conv-${message.conversation_id}`,
+          user: isGroup ? getAvatarSubject(conv) : { username: message.sender_name, avatar_url: message.sender_avatar },
+          title: isGroup ? getConversationName(conv) : message.sender_name,
+          message: isGroup ? `${message.sender_name}: ${message.content}` : message.content,
+          onClick: () => {
+            if (conv) setActiveConversation(conv);
+          },
+        });
+      }
+
+      // Đưa cuộc trò chuyện có tin mới lên đầu sidebar + tăng số chưa đọc
+      if (!conv) {
         fetchConversations();
         return;
       }
@@ -187,6 +331,7 @@ export default function ChatPage() {
         if (idx === -1) return prev;
         const updated = {
           ...prev[idx],
+          unread_count: isActive || isOwn ? 0 : (prev[idx].unread_count || 0) + 1,
           last_message: {
             message_id: message.message_id,
             content: message.content,
@@ -201,17 +346,17 @@ export default function ChatPage() {
     };
 
     const handleSocketError = (err) => {
-      if (err?.message) alert(err.message);
+      if (err?.message) toast.error(err.message);
     };
 
-    const handleUserTyping = ({ user_id, conversation_id }) => {
-      if (conversation_id === activeConversation?.conversation_id && user_id !== user.user_id) {
-        setTypingUsers((prev) => ({ ...prev, [user_id]: true }));
+    const handleUserTyping = ({ user_id, username, conversation_id }) => {
+      if (sameId(conversation_id, activeConversation?.conversation_id) && user_id !== user.user_id) {
+        setTypingUsers((prev) => ({ ...prev, [user_id]: username || "Ai đó" }));
       }
     };
 
     const handleUserStopTyping = ({ user_id, conversation_id }) => {
-      if (conversation_id === activeConversation?.conversation_id) {
+      if (sameId(conversation_id, activeConversation?.conversation_id)) {
         setTypingUsers((prev) => {
           const next = { ...prev };
           delete next[user_id];
@@ -238,7 +383,8 @@ export default function ChatPage() {
       socket.off("user_stop_typing", handleUserStopTyping);
       socket.off("error", handleSocketError);
     };
-  }, [socket, activeConversation, viewingOld, user, markRead, fetchConversations]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, activeConversation, viewingOld, user, markRead, fetchConversations, toast]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -299,11 +445,12 @@ export default function ChatPage() {
     }
   }, [user]);
 
-  // Lời mời được gửi / chấp nhận / hủy ở phía bên kia → cập nhật lại nút trong kết quả tìm kiếm
+  // Lời mời được gửi / chấp nhận / hủy ở phía bên kia → cập nhật nút trong kết quả tìm kiếm và badge danh bạ
   useEffect(() => {
     if (!socket) return;
     const refresh = () => {
-      if (showSearch && searchQuery.trim().length >= 2) handleSearchUsers(searchQuery);
+      fetchPendingCount();
+      if (panel === "people" && searchQuery.trim().length >= 2) handleSearchUsers(searchQuery);
     };
     socket.on("contact_request", refresh);
     socket.on("contact_updated", refresh);
@@ -311,7 +458,7 @@ export default function ChatPage() {
       socket.off("contact_request", refresh);
       socket.off("contact_updated", refresh);
     };
-  }, [socket, showSearch, searchQuery, handleSearchUsers]);
+  }, [socket, panel, searchQuery, handleSearchUsers, fetchPendingCount]);
 
   const updateSearchResult = (userId, changes) => {
     setSearchResults((prev) => prev.map((u) => (u.user_id === userId ? { ...u, ...changes } : u)));
@@ -321,8 +468,9 @@ export default function ChatPage() {
     try {
       const res = await contactsAPI.sendRequest(target.user_id);
       updateSearchResult(target.user_id, { relation: "outgoing", contact_id: res.data.data?.contact_id });
+      toast.success(`Đã gửi lời mời tới ${target.username}. Hai bạn nhắn tin được khi lời mời được chấp nhận.`);
     } catch (err) {
-      alert(err.response?.data?.message || "Không gửi được lời mời kết bạn");
+      toast.error(err.response?.data?.message || "Chưa gửi được lời mời kết bạn");
       handleSearchUsers(searchQuery);
     }
   };
@@ -331,8 +479,10 @@ export default function ChatPage() {
     try {
       await contactsAPI.accept(target.contact_id);
       updateSearchResult(target.user_id, { relation: "friends" });
+      fetchPendingCount();
+      toast.success(`Bạn và ${target.username} đã là bạn bè`);
     } catch (err) {
-      alert(err.response?.data?.message || "Không chấp nhận được lời mời");
+      toast.error(err.response?.data?.message || "Không chấp nhận được lời mời");
       handleSearchUsers(searchQuery);
     }
   };
@@ -341,6 +491,14 @@ export default function ChatPage() {
     const list = await fetchConversations();
     const conv = list.find((c) => sameId(c.conversation_id, convId));
     if (conv) setActiveConversation(conv);
+  };
+
+  const closePanel = () => {
+    setPanel(null);
+    setSearchQuery("");
+    setSearchResults([]);
+    setGroupName("");
+    setSelectedMembers([]);
   };
 
   const handleStartConversation = async (otherUser) => {
@@ -355,25 +513,22 @@ export default function ChatPage() {
       if (err.response?.status === 409 && existingId) {
         await openConversationById(existingId);
       } else {
-        alert(err.response?.data?.message || "Không mở được cuộc trò chuyện");
+        toast.error(err.response?.data?.message || "Không mở được cuộc trò chuyện");
         return;
       }
     }
-    setShowSearch(false);
-    setSearchQuery("");
-    setSearchResults([]);
+    closePanel();
   };
 
-  // Đến từ trang Danh bạ: mở sẵn cuộc trò chuyện / bảng tìm người dùng
-  const location = useLocation();
+  // Đến từ trang khác (Danh bạ, pop-up): mở sẵn cuộc trò chuyện / bảng tìm người dùng
   useEffect(() => {
     const state = location.state;
     if (!state) return;
-    if (state.openUserSearch) setShowSearch(true);
+    if (state.openUserSearch) setPanel("people");
     if (state.conversationId) openConversationById(state.conversationId);
     navigate(location.pathname, { replace: true, state: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location.state]);
 
   const handleJumpToMessage = (result) => {
     fetchMessages(activeConversation.conversation_id, result.message_id);
@@ -388,25 +543,25 @@ export default function ChatPage() {
     if (!groupName.trim() || selectedMembers.length === 0) return;
 
     try {
-      await conversationsAPI.create({
+      const res = await conversationsAPI.create({
         type: "group",
         conversation_name: groupName.trim(),
         member_ids: selectedMembers.map((m) => m.user_id),
       });
-      await fetchConversations();
-      setShowNewGroup(false);
-      setGroupName("");
-      setSelectedMembers([]);
+      toast.success(`Đã tạo nhóm "${groupName.trim()}"`);
+      closePanel();
+      await openConversationById(res.data.data.conversation_id);
     } catch (err) {
-      alert(err.response?.data?.message || "Không tạo được nhóm");
+      toast.error(err.response?.data?.message || "Chưa tạo được nhóm");
     }
   };
 
   // Chỉ bạn bè (đã chấp nhận lời mời) mới được thêm vào nhóm
-  const loadAllUsers = async () => {
+  const openGroupPanel = async () => {
+    setPanel(panel === "group" ? null : "group");
     try {
       const res = await contactsAPI.getAll();
-      setAllUsers(res.data.data || []);
+      setFriendsForGroup(res.data.data || []);
     } catch (err) {
       console.error("Error loading friends:", err);
     }
@@ -414,277 +569,287 @@ export default function ChatPage() {
 
   const getPreview = (conv) => {
     const last = conv.last_message;
-    if (!last) return "Chưa có tin nhắn";
+    if (!last) return conv.type === "group" ? "Nhóm mới tạo, gửi lời chào nhé" : "Chưa có tin nhắn";
     const text = last.is_deleted ? "Tin nhắn đã bị xóa" : last.content;
     if (sameId(last.sender_id, user.user_id)) return `Bạn: ${text}`;
     if (conv.type === "group" && last.sender_name) return `${last.sender_name}: ${text}`;
     return text;
   };
 
-  const getConversationName = (conv) => {
-    if (conv.type === "group") return conv.conversation_name || "Nhóm";
-    if (conv.other_user) return conv.other_user.username;
-    return `Conversation #${conv.conversation_id}`;
-  };
-
-  const getOtherUser = (conv) => {
-    if (conv.other_user) return conv.other_user;
-    return null;
-  };
-
-  // Đối tượng truyền cho UserAvatar: người còn lại (direct) hoặc tên/ảnh nhóm (group)
-  const getAvatarSubject = (conv) =>
-    getOtherUser(conv) || { username: getConversationName(conv), avatar_url: conv.avatar_url };
-
   const handleLogout = async () => {
+    const ok = await toast.confirm({
+      title: "Đăng xuất khỏi SimpleChat?",
+      confirmLabel: "Đăng xuất",
+      cancelLabel: "Ở lại",
+    });
+    if (!ok) return;
     await logout();
     navigate("/login");
   };
 
+  const visibleConversations = useMemo(() => {
+    const q = conversationFilter.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter((c) => getConversationName(c).toLowerCase().includes(q));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, conversationFilter]);
+
+  const typingNames = Object.values(typingUsers);
+  const activeOther = activeConversation ? getOtherUser(activeConversation) : null;
+  const activeOnline = activeOther ? onlineUsers.includes(activeOther.user_id) : false;
+
   return (
-    <div className="chat-page">
+    <div className={`chat-page ${activeConversation ? "chat-open" : ""}`}>
       {/* Sidebar */}
-      <div className="chat-sidebar">
+      <aside className="chat-sidebar">
         <div className="sidebar-header">
-          <div className="sidebar-user">
-            <UserAvatar user={user} size={36} showStatus isOnline />
+          <button className="sidebar-user" onClick={() => navigate("/profile")} title="Hồ sơ của bạn">
+            <UserAvatar user={user} size={38} />
             <span className="sidebar-username">{user?.username}</span>
-          </div>
+          </button>
           <div className="sidebar-actions">
-            <button onClick={() => { setShowSearch(!showSearch); setShowNewGroup(false); }} className="icon-btn" title="Tìm người dùng">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <line x1="19" y1="8" x2="19" y2="14" />
-                <line x1="22" y1="11" x2="16" y2="11" />
-              </svg>
+            <button
+              onClick={() => (panel === "people" ? closePanel() : setPanel("people"))}
+              className={`icon-btn ${panel === "people" ? "active" : ""}`}
+              title="Tìm và kết bạn"
+              aria-label="Tìm và kết bạn"
+            >
+              {Icon.addUser}
             </button>
-            <button onClick={() => { setShowNewGroup(!showNewGroup); setShowSearch(false); loadAllUsers(); }} className="icon-btn" title="Tạo nhóm">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
+            <button
+              onClick={openGroupPanel}
+              className={`icon-btn ${panel === "group" ? "active" : ""}`}
+              title="Tạo nhóm"
+              aria-label="Tạo nhóm"
+            >
+              {Icon.group}
             </button>
-            <button onClick={() => navigate("/contacts")} className="icon-btn" title="Danh bạ">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                <polyline points="22,6 12,13 2,6" />
-              </svg>
+            <button onClick={() => navigate("/contacts", { state: pendingCount ? { tab: "incoming" } : null })} className="icon-btn" title="Danh bạ" aria-label={`Danh bạ${pendingCount ? `, ${pendingCount} lời mời mới` : ""}`}>
+              {Icon.contacts}
+              {pendingCount > 0 && <span className="icon-badge">{pendingCount}</span>}
             </button>
-            <button onClick={() => navigate("/profile")} className="icon-btn" title="Hồ sơ">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-            </button>
-            <button onClick={handleLogout} className="icon-btn logout-btn" title="Đăng xuất">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
+            <button onClick={handleLogout} className="icon-btn" title="Đăng xuất" aria-label="Đăng xuất">
+              {Icon.logout}
             </button>
           </div>
         </div>
 
-        {/* Search users panel */}
-        {showSearch && (
-          <div className="search-panel">
-            <div className="search-panel-header">
-              <h3>Tìm người dùng</h3>
-              <button onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }} className="close-btn">&times;</button>
+        {panel === "people" && (
+          <div className="sheet">
+            <div className="sheet-header">
+              <h3>Tìm và kết bạn</h3>
+              <button onClick={closePanel} className="icon-btn" aria-label="Đóng">{Icon.close}</button>
             </div>
             <input
-              type="text"
+              type="search"
               value={searchQuery}
               onChange={(e) => handleSearchUsers(e.target.value)}
-              placeholder="Nhập username hoặc email..."
-              className="search-panel-input"
+              placeholder="Username hoặc email..."
+              className="input"
               autoFocus
             />
-            <div className="search-results">
+            <div className="sheet-list">
+              {searchQuery.trim().length < 2 && (
+                <p className="sheet-hint">Gõ ít nhất 2 ký tự. Bạn chỉ nhắn tin được với người đã chấp nhận lời mời kết bạn.</p>
+              )}
               {searchResults.map((u) => (
-                <div
-                  key={u.user_id}
-                  className={`search-result-item ${u.relation === "friends" ? "" : "no-click"}`}
-                  onClick={() => u.relation === "friends" && handleStartConversation(u)}
-                >
+                <div key={u.user_id} className="person-row">
                   <UserAvatar user={u} size={36} showStatus isOnline={onlineUsers.includes(u.user_id)} />
-                  <div className="search-result-info">
-                    <span className="search-result-name">{u.username}</span>
-                    <span className="search-result-email">{u.email}</span>
+                  <div className="person-info">
+                    <span className="person-name">{u.username}</span>
+                    <span className="person-sub">{u.email}</span>
                   </div>
-                  <div className="search-result-action" onClick={(e) => e.stopPropagation()}>
+                  <div className="person-action">
                     {u.relation === "friends" && (
-                      <button className="btn-small" onClick={() => handleStartConversation(u)}>Nhắn tin</button>
+                      <button className="btn btn-primary btn-sm" onClick={() => handleStartConversation(u)}>Nhắn tin</button>
                     )}
                     {u.relation === "none" && (
-                      <button className="btn-small" onClick={() => handleSendFriendRequest(u)}>Kết bạn</button>
+                      <button className="btn btn-outline btn-sm" onClick={() => handleSendFriendRequest(u)}>Kết bạn</button>
                     )}
                     {u.relation === "outgoing" && <span className="relation-badge">Chờ chấp nhận</span>}
                     {u.relation === "incoming" && (
-                      <button className="btn-accept" onClick={() => handleAcceptFromSearch(u)}>Chấp nhận</button>
+                      <button className="btn btn-attention btn-sm" onClick={() => handleAcceptFromSearch(u)}>Chấp nhận</button>
                     )}
                   </div>
                 </div>
               ))}
-              {searchQuery.length >= 2 && searchResults.length === 0 && (
-                <p className="no-results">Không tìm thấy người dùng</p>
+              {searchQuery.trim().length >= 2 && searchResults.length === 0 && (
+                <p className="sheet-hint">Không tìm thấy ai khớp với "{searchQuery.trim()}".</p>
               )}
             </div>
           </div>
         )}
 
-        {/* Create group panel */}
-        {showNewGroup && (
-          <div className="search-panel">
-            <div className="search-panel-header">
-              <h3>Tạo nhóm mới</h3>
-              <button onClick={() => { setShowNewGroup(false); setGroupName(""); setSelectedMembers([]); }} className="close-btn">&times;</button>
+        {panel === "group" && (
+          <form className="sheet" onSubmit={handleCreateGroup}>
+            <div className="sheet-header">
+              <h3>Tạo nhóm</h3>
+              <button type="button" onClick={closePanel} className="icon-btn" aria-label="Đóng">{Icon.close}</button>
             </div>
-            <form onSubmit={handleCreateGroup}>
-              <input
-                type="text"
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-                placeholder="Tên nhóm..."
-                className="search-panel-input"
-                required
-              />
-              <div className="member-select">
-                {allUsers.length === 0 && (
-                  <p className="no-results">Chưa có bạn bè. Hãy kết bạn trước khi tạo nhóm.</p>
-                )}
-                {allUsers.map((u) => (
-                  <label key={u.user_id} className="member-option">
+            <input
+              type="text"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              placeholder="Tên nhóm"
+              className="input"
+              maxLength={100}
+              required
+              autoFocus
+            />
+            <div className="sheet-list">
+              {friendsForGroup.length === 0 && (
+                <p className="sheet-hint">Bạn cần có bạn bè trước khi tạo nhóm.</p>
+              )}
+              {friendsForGroup.map((u) => {
+                const checked = selectedMembers.some((m) => m.user_id === u.user_id);
+                return (
+                  <label key={u.user_id} className={`person-row selectable ${checked ? "selected" : ""}`}>
+                    <UserAvatar user={u} size={32} />
+                    <span className="person-name">{u.username}</span>
                     <input
                       type="checkbox"
-                      checked={selectedMembers.some((m) => m.user_id === u.user_id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedMembers([...selectedMembers, u]);
-                        } else {
-                          setSelectedMembers(selectedMembers.filter((m) => m.user_id !== u.user_id));
-                        }
-                      }}
+                      checked={checked}
+                      onChange={(e) =>
+                        setSelectedMembers(
+                          e.target.checked
+                            ? [...selectedMembers, u]
+                            : selectedMembers.filter((m) => m.user_id !== u.user_id)
+                        )
+                      }
                     />
-                    <UserAvatar user={u} size={28} />
-                    <span>{u.username}</span>
                   </label>
-                ))}
-              </div>
-              <button type="submit" className="auth-btn" disabled={!groupName.trim() || selectedMembers.length === 0}>
-                Tạo nhóm ({selectedMembers.length} thành viên)
-              </button>
-            </form>
-          </div>
+                );
+              })}
+            </div>
+            <button type="submit" className="btn btn-primary btn-block" disabled={!groupName.trim() || selectedMembers.length === 0}>
+              {selectedMembers.length > 0 ? `Tạo nhóm với ${selectedMembers.length} người` : "Chọn thành viên"}
+            </button>
+          </form>
         )}
 
-        {/* Conversation list */}
-        <div className="conversation-list">
+        <div className="sidebar-filter">
+          <span className="sidebar-filter-icon">{Icon.search}</span>
+          <input
+            type="search"
+            value={conversationFilter}
+            onChange={(e) => setConversationFilter(e.target.value)}
+            placeholder="Tìm cuộc trò chuyện"
+            aria-label="Tìm cuộc trò chuyện"
+          />
+        </div>
+
+        <nav className="conversation-list" aria-label="Cuộc trò chuyện">
           {loadingConversations ? (
-            <div className="loading">Đang tải...</div>
+            <div className="app-loading inline"><div className="spinner light" aria-label="Đang tải" /></div>
           ) : conversations.length === 0 ? (
-            <div className="empty-state">
-              <p>Chưa có cuộc trò chuyện nào</p>
-              <button onClick={() => setShowSearch(true)} className="link-btn">Bắt đầu chat</button>
+            <div className="sidebar-empty">
+              <p>Chưa có cuộc trò chuyện nào.</p>
+              <button onClick={() => setPanel("people")} className="btn btn-attention btn-sm">Tìm bạn để bắt đầu</button>
             </div>
+          ) : visibleConversations.length === 0 ? (
+            <div className="sidebar-empty"><p>Không có cuộc trò chuyện nào tên "{conversationFilter.trim()}".</p></div>
           ) : (
-            conversations.map((conv) => {
+            visibleConversations.map((conv) => {
               const otherUser = getOtherUser(conv);
+              const unread = conv.unread_count || 0;
+              const isActive = sameId(activeConversation?.conversation_id, conv.conversation_id);
               return (
-                <div
+                <button
                   key={conv.conversation_id}
-                  className={`conversation-item ${activeConversation?.conversation_id === conv.conversation_id ? "active" : ""}`}
+                  className={`conversation-item ${isActive ? "active" : ""} ${unread > 0 ? "unread" : ""}`}
                   onClick={() => setActiveConversation(conv)}
+                  aria-current={isActive ? "true" : undefined}
                 >
                   <UserAvatar
                     user={getAvatarSubject(conv)}
-                    size={44}
+                    size={46}
                     showStatus={conv.type === "direct"}
                     isOnline={otherUser ? onlineUsers.includes(otherUser.user_id) : false}
                   />
-                  <div className="conversation-info">
-                    <div className="conversation-top">
+                  <span className="conversation-info">
+                    <span className="conversation-top">
                       <span className="conversation-name">{getConversationName(conv)}</span>
-                      <span className="conversation-time">
-                        {formatListTime(conv.last_message?.created_at)}
-                      </span>
-                    </div>
-                    <span className="conversation-preview">{getPreview(conv)}</span>
-                  </div>
-                </div>
+                      <span className="conversation-time">{formatListTime(conv.last_message?.created_at)}</span>
+                    </span>
+                    <span className="conversation-bottom">
+                      <span className="conversation-preview">{getPreview(conv)}</span>
+                      {unread > 0 && <span className="unread-badge">{unread > 99 ? "99+" : unread}</span>}
+                    </span>
+                  </span>
+                </button>
               );
             })
           )}
-        </div>
-      </div>
+        </nav>
+      </aside>
 
       {/* Chat area */}
-      <div className="chat-main">
+      <main className="chat-main">
         {activeConversation ? (
           <>
-            <div className="chat-header">
+            <header className="chat-header">
+              <button className="icon-btn mobile-back" onClick={() => setActiveConversation(null)} aria-label="Quay lại danh sách">
+                {Icon.back}
+              </button>
               <UserAvatar
                 user={getAvatarSubject(activeConversation)}
-                size={40}
+                size={42}
                 showStatus={activeConversation.type === "direct"}
-                isOnline={getOtherUser(activeConversation) ? onlineUsers.includes(getOtherUser(activeConversation).user_id) : false}
+                isOnline={activeOnline}
               />
               <div className="chat-header-info">
-                <h3>{getConversationName(activeConversation)}</h3>
-                {activeConversation.type === "direct" && (
-                  <span className={`header-status ${onlineUsers.includes(getOtherUser(activeConversation)?.user_id) ? "online" : ""}`}>
-                    {onlineUsers.includes(getOtherUser(activeConversation)?.user_id) ? "Đang online" : "Offline"}
+                <h2>{getConversationName(activeConversation)}</h2>
+                {activeConversation.type === "direct" ? (
+                  <span className={`header-status ${activeOnline ? "online" : ""}`}>
+                    {activeOnline ? "Đang hoạt động" : "Ngoại tuyến"}
                   </span>
+                ) : (
+                  <span className="header-status">Nhóm</span>
                 )}
               </div>
               <button
                 onClick={() => { setShowMessageSearch(!showMessageSearch); setMessageQuery(""); }}
                 className={`icon-btn header-search-btn ${showMessageSearch ? "active" : ""}`}
                 title="Tìm tin nhắn"
+                aria-label="Tìm tin nhắn"
+                aria-expanded={showMessageSearch}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
+                {Icon.search}
               </button>
-            </div>
+            </header>
 
             {showMessageSearch && (
               <div className="message-search">
                 <input
-                  type="text"
+                  type="search"
                   value={messageQuery}
                   onChange={(e) => setMessageQuery(e.target.value)}
-                  placeholder="Tìm tin nhắn theo nội dung..."
-                  className="search-panel-input"
+                  placeholder="Tìm trong cuộc trò chuyện này..."
+                  className="input"
                   autoFocus
                 />
                 {messageQuery.trim() && (
                   <div className="message-search-results">
                     {searchingMessages && messageResults.length === 0 ? (
-                      <p className="no-results">Đang tìm...</p>
+                      <p className="sheet-hint">Đang tìm...</p>
                     ) : messageResults.length === 0 ? (
-                      <p className="no-results">Không tìm thấy tin nhắn</p>
+                      <p className="sheet-hint">Không có tin nhắn nào chứa "{messageQuery.trim()}".</p>
                     ) : (
                       messageResults.map((r) => (
-                        <div
+                        <button
                           key={r.message_id}
-                          className={`message-search-item ${highlightId === r.message_id ? "active" : ""}`}
+                          className={`message-search-item ${sameId(highlightId, r.message_id) ? "active" : ""}`}
                           onClick={() => handleJumpToMessage(r)}
                         >
                           <UserAvatar user={{ username: r.sender_name, avatar_url: r.sender_avatar }} size={28} />
-                          <div className="message-search-info">
-                            <div className="message-search-meta">
+                          <span className="message-search-info">
+                            <span className="message-search-meta">
                               <span>{sameId(r.sender_id, user.user_id) ? "Bạn" : r.sender_name}</span>
                               <span>{new Date(r.created_at).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" })}</span>
-                            </div>
-                            <p className="message-search-content">{highlightText(r.content, messageQuery.trim())}</p>
-                          </div>
-                        </div>
+                            </span>
+                            <span className="message-search-content">{highlightText(r.content, messageQuery.trim())}</span>
+                          </span>
+                        </button>
                       ))
                     )}
                   </div>
@@ -694,76 +859,95 @@ export default function ChatPage() {
 
             {viewingOld && !loadingMessages && (
               <div className="viewing-old-banner">
-                <span>Đang xem tin nhắn cũ</span>
-                <button className="link-btn" onClick={handleBackToLatest}>Về tin nhắn mới nhất ↓</button>
+                <span>Bạn đang xem tin nhắn cũ</span>
+                <button className="btn btn-primary btn-sm" onClick={handleBackToLatest}>Về tin mới nhất</button>
               </div>
             )}
 
             <div className="chat-messages">
               {loadingMessages ? (
-                <div className="loading">Đang tải tin nhắn...</div>
+                <div className="app-loading inline"><div className="spinner" aria-label="Đang tải tin nhắn" /></div>
               ) : messages.length === 0 ? (
-                <div className="empty-state">
-                  <p>Chưa có tin nhắn nào</p>
-                  <p className="hint">Gửi tin nhắn đầu tiên!</p>
+                <div className="chat-hello">
+                  <UserAvatar user={getAvatarSubject(activeConversation)} size={72} />
+                  <p>
+                    {activeConversation.type === "group"
+                      ? `Chưa ai nói gì trong ${getConversationName(activeConversation)}.`
+                      : `Bắt đầu trò chuyện với ${getConversationName(activeConversation)}.`}
+                  </p>
+                  <span>Gửi một lời chào ở ô bên dưới.</span>
                 </div>
               ) : (
                 messages.map((msg, idx) => {
+                  const prev = messages[idx - 1];
+                  const next = messages[idx + 1];
                   const isOwn = msg.sender_id === user.user_id;
-                  const showAvatar = idx === 0 || messages[idx - 1]?.sender_id !== msg.sender_id;
+                  const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(msg.created_at).toDateString();
+                  const firstOfRun = newDay || prev?.sender_id !== msg.sender_id;
+                  const lastOfRun =
+                    !next ||
+                    next.sender_id !== msg.sender_id ||
+                    new Date(next.created_at).toDateString() !== new Date(msg.created_at).toDateString();
                   return (
-                    <div
-                      key={msg.message_id || idx}
-                      id={msg.message_id ? `msg-${msg.message_id}` : undefined}
-                      className={`message ${isOwn ? "own" : "other"} ${sameId(highlightId, msg.message_id) ? "highlight" : ""}`}
-                    >
-                      {!isOwn && showAvatar && (
-                        <UserAvatar user={{ username: msg.sender_name, avatar_url: msg.sender_avatar }} size={32} />
+                    <div key={msg.message_id || idx} className="message-block">
+                      {newDay && (
+                        <div className="day-divider"><span>{formatDayLabel(msg.created_at)}</span></div>
                       )}
-                      {!isOwn && !showAvatar && <div style={{ width: 32 }} />}
-                      <div className="message-bubble">
-                        {!isOwn && showAvatar && <span className="message-sender">{msg.sender_name}</span>}
-                        <p className="message-content">{msg.is_deleted ? "Tin nhắn đã bị xóa" : msg.content}</p>
-                        <span className="message-time">
-                          {new Date(msg.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
-                        </span>
+                      <div
+                        id={msg.message_id ? `msg-${msg.message_id}` : undefined}
+                        className={`message ${isOwn ? "own" : "other"} ${firstOfRun ? "first" : ""} ${lastOfRun ? "last" : ""} ${sameId(highlightId, msg.message_id) ? "highlight" : ""}`}
+                      >
+                        {!isOwn && (
+                          <div className="message-avatar">
+                            {lastOfRun && <UserAvatar user={{ username: msg.sender_name, avatar_url: msg.sender_avatar }} size={30} />}
+                          </div>
+                        )}
+                        <div className="message-stack">
+                          {!isOwn && firstOfRun && activeConversation.type === "group" && (
+                            <span className="message-sender">{msg.sender_name}</span>
+                          )}
+                          <div className="message-bubble" title={new Date(msg.created_at).toLocaleString("vi-VN")}>
+                            <p className={`message-content ${msg.is_deleted ? "deleted" : ""}`}>
+                              {msg.is_deleted ? "Tin nhắn đã bị xóa" : msg.content}
+                            </p>
+                          </div>
+                          {lastOfRun && <span className="message-time">{formatTime(msg.created_at)}</span>}
+                        </div>
                       </div>
                     </div>
                   );
                 })
               )}
-              {Object.keys(typingUsers).length > 0 && (
-                <TypingIndicator username="Ai đó" />
+              {typingNames.length > 0 && (
+                <TypingIndicator username={typingNames.length > 1 ? `${typingNames.length} người` : typingNames[0]} />
               )}
               <div ref={messagesEndRef} />
             </div>
 
             <form className="chat-input" onSubmit={handleSendMessage}>
               <input
+                ref={composerRef}
                 type="text"
                 value={newMessage}
                 onChange={handleTyping}
-                placeholder="Nhập tin nhắn..."
+                placeholder={`Nhắn cho ${getConversationName(activeConversation)}...`}
                 autoComplete="off"
+                aria-label="Nội dung tin nhắn"
               />
-              <button type="submit" disabled={!newMessage.trim()}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </svg>
+              <button type="submit" disabled={!newMessage.trim()} aria-label="Gửi">
+                {Icon.send}
               </button>
             </form>
           </>
         ) : (
           <div className="chat-empty">
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            <h2>Chào mừng đến SimpleChat</h2>
-            <p>Chọn một cuộc trò chuyện hoặc bắt đầu chat mới</p>
+            <Logo size={56} />
+            <h2>Chọn một cuộc trò chuyện</h2>
+            <p>Tin nhắn mới sẽ hiện ở danh sách bên trái và bật thông báo ở góc màn hình.</p>
+            <button className="btn btn-outline" onClick={() => setPanel("people")}>Tìm và kết bạn</button>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

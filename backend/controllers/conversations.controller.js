@@ -128,7 +128,10 @@ const conversationsController = {
       SELECT c.conversation_id, c.type, c.conversation_name, c.avatar_url, c.created_by, c.created_at,
              ou.user_id AS other_user_id, ou.username AS other_username, ou.avatar_url AS other_avatar_url,
              lm.message_id AS last_message_id, lm.content AS last_content, lm.sender_id AS last_sender_id,
-             lm.created_at AS last_created_at, lm.is_deleted AS last_is_deleted, lu.username AS last_sender_name
+             lm.created_at AS last_created_at, lm.is_deleted AS last_is_deleted, lu.username AS last_sender_name,
+             (SELECT COUNT(*) FROM MessageStatus ms
+                INNER JOIN Messages um ON um.message_id = ms.message_id
+               WHERE um.conversation_id = c.conversation_id AND ms.receiver_id = ? AND ms.status <> 'read') AS unread_count
       FROM Conversations c
       INNER JOIN Participants p ON c.conversation_id = p.conversation_id AND p.user_id = ?
       LEFT JOIN Participants op ON c.type = 'direct' AND op.conversation_id = c.conversation_id AND op.user_id <> ?
@@ -139,7 +142,7 @@ const conversationsController = {
       LEFT JOIN Users lu ON lu.user_id = lm.sender_id
       ORDER BY COALESCE(lm.created_at, c.created_at) DESC, c.conversation_id DESC
     `;
-    db.query(sqlString, [userId, userId], (err, result) => {
+    db.query(sqlString, [userId, userId, userId], (err, result) => {
       if (err) {
         return res.status(500).json({ status: "error", message: "Lỗi khi lấy danh sách cuộc trò chuyện" });
       }
@@ -147,9 +150,11 @@ const conversationsController = {
         ({
           other_user_id, other_username, other_avatar_url,
           last_message_id, last_content, last_sender_id, last_created_at, last_is_deleted, last_sender_name,
+          unread_count,
           ...conv
         }) => ({
           ...conv,
+          unread_count: Number(unread_count) || 0,
           other_user: other_user_id
             ? { user_id: other_user_id, username: other_username, avatar_url: other_avatar_url }
             : null,

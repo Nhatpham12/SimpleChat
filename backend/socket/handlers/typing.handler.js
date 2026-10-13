@@ -2,6 +2,7 @@ const handleTypingStart = (socket) => {
   return (conversationId) => {
     socket.to(`conversation:${conversationId}`).emit("user_typing", {
       user_id: socket.user.user_id,
+      username: socket.user.username,
       conversation_id: conversationId,
     });
   };

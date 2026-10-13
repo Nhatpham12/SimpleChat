@@ -2,11 +2,17 @@ const userContacts = require("../models/userContacts.model");
 const users = require("../models/users.model");
 const blockedUsers = require("../models/blockedUsers.model");
 
-// Báo realtime cho các user liên quan để client tải lại danh bạ / kết quả tìm kiếm
-const notifyContactChange = (req, userIds, event, payload) => {
+// Báo realtime cho các user liên quan để client tải lại danh bạ / hiện pop-up.
+// Kèm thông tin người thực hiện (actorKey: from_user | by_user) để pop-up hiện tên + avatar.
+const notifyContactChange = (req, userIds, event, payload, actorKey = "by_user") => {
   const io = req.app.get("io");
   if (!io) return;
-  userIds.forEach((id) => io.to(`user:${id}`).emit(event, payload));
+  users.getById(req.user.user_id, (err, actor) => {
+    const actorInfo = actor
+      ? { user_id: actor.user_id, username: actor.username, avatar_url: actor.avatar_url }
+      : { user_id: req.user.user_id, username: req.user.username };
+    userIds.forEach((id) => io.to(`user:${id}`).emit(event, { ...payload, [actorKey]: actorInfo }));
+  });
 };
 
 const contactsController = {
@@ -106,7 +112,7 @@ const contactsController = {
               if (err) {
                 return res.status(500).json({ status: "error", message: "Lỗi khi gửi yêu cầu kết bạn" });
               }
-              notifyContactChange(req, [friendId], "contact_request", { contact_id: contactId, from_user_id: userId });
+              notifyContactChange(req, [friendId], "contact_request", { contact_id: contactId }, "from_user");
               res.status(201).json({ status: "ok", message: "Đã gửi yêu cầu kết bạn, đang chờ chấp nhận", data: { contact_id: contactId } });
             });
           });
