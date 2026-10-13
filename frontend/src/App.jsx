@@ -10,6 +10,7 @@ import ContactsPage from "./pages/ContactsPage";
 import ProfilePage from "./pages/ProfilePage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import AdminPage from "./pages/AdminPage";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -32,6 +33,13 @@ function ProtectedRoute({ children }) {
       {children}
     </SocketProvider>
   );
+}
+
+// Chỉ admin; server vẫn tự kiểm tra quyền ở mọi API /api/admin
+function AdminRoute({ children }) {
+  const { user } = useAuth();
+  if (user?.role !== "admin") return <Navigate to="/chat" replace />;
+  return children;
 }
 
 function PublicRoute({ children }) {
@@ -111,6 +119,16 @@ function App() {
               element={
                 <ProtectedRoute>
                   <ProfilePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute>
+                  <AdminRoute>
+                    <AdminPage />
+                  </AdminRoute>
                 </ProtectedRoute>
               }
             />

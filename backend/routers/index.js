@@ -18,5 +18,6 @@ router.use("/notifications", notificationRoutes);
 router.use("/group-settings", groupSettingsRoutes);
 router.use("/blocked", blockedUsersRoutes);
 router.use("/attachments", attachmentRoutes);
+router.use("/admin", require("./admin.routes"));
 
 module.exports = router;

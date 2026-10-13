@@ -1,5 +1,8 @@
 const users = require("../models/users.model");
 
+// Không bao giờ trả password_hash về client
+const publicUser = ({ password_hash, ...user }) => user;
+
 const usersController = {
   // GET /api/users
   getAll: (req, res) => {
@@ -27,7 +30,7 @@ const usersController = {
           .status(404)
           .json({ status: "error", message: "Không tìm thấy người dùng" });
       }
-      res.json({ status: "ok", data: result });
+      res.json({ status: "ok", data: publicUser(result) });
     });
   },
 
@@ -191,53 +194,6 @@ const usersController = {
     });
   },
 
-  // PATCH /api/users/:id/role
-  updateRole: (req, res) => {
-    const { id } = req.params;
-    const { role } = req.body;
-
-    const allowedRoles = ["admin", "user"];
-    if (!role || !allowedRoles.includes(role)) {
-      return res.status(400).json({
-        status: "error",
-        message: `Role phải là một trong: ${allowedRoles.join(", ")}`,
-      });
-    }
-
-    users.updateRole(id, role, (err, success) => {
-      if (err) {
-        return res
-          .status(500)
-          .json({ status: "error", message: "Lỗi khi cập nhật vai trò" });
-      }
-      if (!success) {
-        return res
-          .status(404)
-          .json({ status: "error", message: "Không tìm thấy người dùng" });
-      }
-      res.json({ status: "ok", message: "Cập nhật vai trò thành công" });
-    });
-  },
-
-  // DELETE /api/users/:id
-  delete: (req, res) => {
-    const { id } = req.params;
-
-    users.delete(id, (err, success) => {
-      if (err) {
-        return res
-          .status(500)
-          .json({ status: "error", message: "Lỗi khi xóa người dùng" });
-      }
-      if (!success) {
-        return res
-          .status(404)
-          .json({ status: "error", message: "Không tìm thấy người dùng" });
-      }
-      res.json({ status: "ok", message: "Xóa người dùng thành công" });
-    });
-  },
-
   // GET /api/users/profile (từ token JWT)
   getProfile: (req, res) => {
     const userId = req.user.user_id;
@@ -252,7 +208,7 @@ const usersController = {
           .status(404)
           .json({ status: "error", message: "Không tìm thấy người dùng" });
       }
-      res.json({ status: "ok", data: result });
+      res.json({ status: "ok", data: publicUser(result) });
     });
   },
 };

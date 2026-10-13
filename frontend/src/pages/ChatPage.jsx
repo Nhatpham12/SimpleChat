@@ -91,6 +91,12 @@ const Icon = {
       <path d="M8.5 14c.6-1.4 2-2 3.5-2s2.9.6 3.5 2" />
     </svg>
   ),
+  admin: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  ),
   logout: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -628,6 +634,11 @@ export default function ChatPage() {
               {Icon.contacts}
               {pendingCount > 0 && <span className="icon-badge">{pendingCount}</span>}
             </button>
+            {user?.role === "admin" && (
+              <button onClick={() => navigate("/admin")} className="icon-btn" title="Quản trị" aria-label="Quản trị">
+                {Icon.admin}
+              </button>
+            )}
             <button onClick={handleLogout} className="icon-btn" title="Đăng xuất" aria-label="Đăng xuất">
               {Icon.logout}
             </button>

@@ -1644,6 +1644,341 @@ mark {
   gap: 8px;
 }
 
+/* =========================================================================
+   Trang quản trị
+   ========================================================================= */
+.admin-body {
+  max-width: 1120px;
+}
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--ink-800);
+  color: var(--on-ink);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 18px 20px;
+}
+
+.stat + .stat {
+  border-left: 1px solid var(--ink-700);
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--on-ink-2);
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.stat-note {
+  font-size: 12px;
+  color: var(--on-ink-2);
+}
+
+.admin-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.admin-toolbar {
+  display: flex;
+  gap: 10px;
+}
+
+.admin-toolbar .input {
+  height: 40px;
+}
+
+.admin-sort {
+  width: auto;
+  flex-shrink: 0;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.admin-filters .tab {
+  flex: 0 1 auto;
+  padding: 0 14px;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+  margin: 0 -16px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-table th {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-table th:first-child,
+.admin-table td:first-child {
+  padding-left: 16px;
+}
+
+.admin-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--mist);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.admin-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-table .actions {
+  width: 1%;
+  padding-right: 12px;
+  text-align: right;
+}
+
+.admin-table tbody tr:hover {
+  background: #f7f9f8;
+}
+
+.admin-table tr.locked .admin-user {
+  opacity: 0.6;
+}
+
+.admin-table tbody.is-loading {
+  opacity: 0.5;
+}
+
+.admin-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-user-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.admin-user-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.admin-user-email {
+  font-size: 13px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.self-tag {
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--mist);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--mist);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-ok {
+  background: #e3f4ea;
+  color: var(--ok);
+}
+
+.badge-warn {
+  background: #fdf2dc;
+  color: #94620f;
+}
+
+.badge-danger {
+  background: var(--err-50);
+  color: var(--err);
+}
+
+.badge-ink {
+  background: var(--ink-100);
+  color: var(--ink-800);
+}
+
+.row-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.row-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 6px;
+  background: var(--paper);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  animation: dialog-in 0.12s ease-out;
+}
+
+.row-menu-list button {
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.row-menu-list button:hover {
+  background: var(--mist);
+}
+
+.row-menu-list button.danger {
+  color: var(--err);
+}
+
+.row-menu-list button.danger:hover {
+  background: var(--err-50);
+}
+
+.admin-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.admin-pager div {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 860px) {
+  .stat-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat:nth-child(3) {
+    border-left: none;
+  }
+
+  .stat:nth-child(n + 3) {
+    border-top: 1px solid var(--ink-700);
+  }
+
+  /* Bảng → thẻ */
+  .admin-table thead {
+    display: none;
+  }
+
+  .admin-table,
+  .admin-table tbody,
+  .admin-table tr,
+  .admin-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .admin-table tr {
+    position: relative;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .admin-table td,
+  .admin-table td:first-child {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    border: none;
+    white-space: normal;
+  }
+
+  .admin-table td::before {
+    content: attr(data-label);
+    color: var(--text-3);
+    font-size: 13px;
+  }
+
+  .admin-table td:first-child {
+    margin-bottom: 6px;
+    padding-right: 44px;
+  }
+
+  .admin-table td:first-child::before {
+    content: none;
+  }
+
+  .admin-table .actions {
+    position: absolute;
+    top: 10px;
+    right: 8px;
+    width: auto;
+    padding: 0;
+  }
+
+  .admin-table .actions::before {
+    content: none;
+  }
+
+  .admin-toolbar {
+    flex-direction: column;
+  }
+
+  .admin-sort {
+    width: 100%;
+  }
+
+  .admin-filters {
+    overflow-x: auto;
+  }
+
+  .admin-filters .tab {
+    flex-shrink: 0;
+  }
+}
+
 /* ---------- Scrollbar ---------- */
 ::-webkit-scrollbar {
   width: 8px;

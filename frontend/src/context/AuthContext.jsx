@@ -58,7 +58,7 @@ export const AuthProvider = ({ children }) => {
     return saveSession(res.data.data);
   };
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await authAPI.logout();
     } catch {
@@ -67,7 +67,7 @@ export const AuthProvider = ({ children }) => {
     sessionStorage.removeItem("token");
     sessionStorage.removeItem("user");
     setUser(null);
-  };
+  }, []);
 
   const updateUser = (updatedUser) => {
     setUser(updatedUser);

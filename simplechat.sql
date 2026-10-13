@@ -20,6 +20,7 @@ CREATE TABLE Users (
     avatar_url    TEXT DEFAULT NULL,
     status        ENUM('online','offline','away') DEFAULT 'offline',
     is_verified   BOOLEAN NOT NULL DEFAULT FALSE,
+    is_locked     BOOLEAN NOT NULL DEFAULT FALSE,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;

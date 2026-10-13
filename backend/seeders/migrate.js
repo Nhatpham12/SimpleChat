@@ -11,6 +11,12 @@ const COLUMNS = [
     afterAdd: "UPDATE Users SET is_verified = TRUE",
   },
   {
+    // Admin khóa tài khoản: không đăng nhập được, phiên đang mở bị ngắt
+    table: "Users",
+    column: "is_locked",
+    definition: "BOOLEAN NOT NULL DEFAULT FALSE AFTER is_verified",
+  },
+  {
     table: "EmailVerifications",
     column: "attempts",
     definition: "INT NOT NULL DEFAULT 0 AFTER is_used",

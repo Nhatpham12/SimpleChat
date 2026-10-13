@@ -1,14 +1,26 @@
 const messages = require("../../models/messages.model");
 const { canSendMessage } = require("../../common/chatGuard");
+const { createSocketLimiter } = require("../../middlewares/rateLimit.middleware");
 const messageStatus = require("../../models/messageStatus.model");
 const users = require("../../models/users.model");
 const db = require("../../common/connect");
 const notifications = require("../../models/notifications.model");
 
 const handleMessage = (socket, io, onlineUsers) => {
+  // Mỗi kết nối tối đa 20 tin / 10 giây
+  const allowSend = createSocketLimiter(20, 10 * 1000);
+
   return (data) => {
     const { conversation_id, content, type } = data;
     const userId = socket.user.user_id;
+
+    if (!allowSend()) {
+      return socket.emit("error", { message: "Bạn gửi tin nhắn quá nhanh, chờ vài giây rồi gửi tiếp nhé" });
+    }
+
+    if (typeof content === "string" && content.length > 5000) {
+      return socket.emit("error", { message: "Tin nhắn quá dài (tối đa 5000 ký tự)" });
+    }
 
     if (!conversation_id || !content) {
       return socket.emit("error", {

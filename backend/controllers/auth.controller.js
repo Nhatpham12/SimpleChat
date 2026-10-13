@@ -7,6 +7,7 @@ const jwt = require("jsonwebtoken");
 const config = require("../config");
 const { issueOtp, checkOtp, OTP_TTL_MINUTES } = require("../common/otp");
 const { sendOtpMail } = require("../common/mailer");
+const { LOCKED_MESSAGE } = require("../middlewares/auth.middleware");
 
 const SALT_ROUND = 10;
 
@@ -31,6 +32,7 @@ const generateToken = (user) => {
 const publicUser = ({ password_hash, ...user }) => ({
   ...user,
   is_verified: Boolean(user.is_verified),
+  is_locked: Boolean(user.is_locked),
 });
 
 const normalizeEmail = (email) =>
@@ -58,6 +60,10 @@ const tooSoon = (res, retryAfter) =>
   });
 
 const loginResponse = async (res, user, message) => {
+  // Chặn cả đường đăng nhập qua xác nhận email
+  if (user.is_locked) {
+    return res.status(403).json({ status: "error", code: "ACCOUNT_LOCKED", message: LOCKED_MESSAGE });
+  }
   await promisify(users.updateStatus)(user.user_id, "online");
   res.json({
     status: "ok",
@@ -119,6 +125,14 @@ const authController = {
       return res.status(401).json({
         status: "error",
         message: "Username hoặc password không đúng",
+      });
+    }
+
+    if (user.is_locked) {
+      return res.status(403).json({
+        status: "error",
+        code: "ACCOUNT_LOCKED",
+        message: LOCKED_MESSAGE,
       });
     }
 

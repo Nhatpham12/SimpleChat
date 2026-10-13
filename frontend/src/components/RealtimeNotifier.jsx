@@ -9,7 +9,7 @@ import { contactsAPI } from "../api/contacts";
 // lời mời kết bạn, lời mời được chấp nhận, và tin nhắn mới khi không ở trang chat
 // (trang chat tự hiển thị thông báo tin nhắn vì nó biết cuộc trò chuyện đang mở).
 export default function RealtimeNotifier() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { socket } = useSocket();
   const toast = useToast();
   const navigate = useNavigate();
@@ -69,15 +69,24 @@ export default function RealtimeNotifier() {
       });
     };
 
+    // Admin khóa / xóa tài khoản đang đăng nhập → đăng xuất ngay
+    const handleLocked = async ({ message }) => {
+      sessionStorage.setItem("flash", message || "Tài khoản của bạn đã bị khóa");
+      await logout();
+      navigate("/login", { replace: true });
+    };
+
     socket.on("contact_request", handleRequest);
     socket.on("contact_updated", handleUpdated);
     socket.on("new_message", handleMessage);
+    socket.on("account_locked", handleLocked);
     return () => {
       socket.off("contact_request", handleRequest);
       socket.off("contact_updated", handleUpdated);
       socket.off("new_message", handleMessage);
+      socket.off("account_locked", handleLocked);
     };
-  }, [socket, toast, navigate, user, onChatPage]);
+  }, [socket, toast, navigate, user, onChatPage, logout]);
 
   return null;
 }

@@ -24,6 +24,9 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && sessionStorage.getItem("token")) {
       sessionStorage.removeItem("token");
       sessionStorage.removeItem("user");
+      // Trang đăng nhập hiện lý do (vd. tài khoản bị khóa) bằng pop-up
+      const reason = error.response.data?.code === "ACCOUNT_LOCKED" ? error.response.data.message : "Phiên đăng nhập đã hết hạn, hãy đăng nhập lại";
+      sessionStorage.setItem("flash", reason);
       window.location.href = "/login";
     }
     return Promise.reject(error);

@@ -16,11 +16,20 @@ export default function LoginPage() {
 
   // Thông báo chuyển từ trang khác (vd. đặt lại mật khẩu thành công)
   useEffect(() => {
+    if (noticeShownRef.current) return;
     const notice = location.state?.message;
-    if (notice && !noticeShownRef.current) {
+    if (notice) {
       noticeShownRef.current = true;
       toast.success(notice);
       navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+    // Lý do bị đăng xuất (hết phiên / tài khoản bị khóa), do axios hoặc socket để lại
+    const flash = sessionStorage.getItem("flash");
+    if (flash) {
+      noticeShownRef.current = true;
+      sessionStorage.removeItem("flash");
+      toast.error(flash);
     }
   }, [location, navigate, toast]);
 
