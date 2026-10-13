@@ -1,0 +1,8 @@
+simplechat.io.vn {
+	encode gzip
+	reverse_proxy frontend:80
+}
+
+www.simplechat.io.vn {
+	redir https://simplechat.io.vn{uri} permanent
+}

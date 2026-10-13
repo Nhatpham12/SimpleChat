@@ -44,13 +44,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy compose + schema to EC2
+      - name: Copy compose + schema + Caddyfile to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.yml,simplechat.sql"
+          source: "docker-compose.yml,simplechat.sql,Caddyfile"
           target: "~/simplechat"
 
       - name: Pull & restart
@@ -62,6 +62,7 @@ jobs:
           script: |
             cd ~/simplechat
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker compose pull backend frontend
-            docker compose up -d
+            docker compose pull backend frontend caddy
+            docker compose up -d --remove-orphans
+            docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile || true
             docker image prune -f

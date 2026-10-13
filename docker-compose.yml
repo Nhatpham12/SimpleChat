@@ -32,10 +32,25 @@ services:
   frontend:
     image: ghcr.io/nhatpham12/simplechat-frontend:latest
     restart: unless-stopped
-    ports:
-      - "80:80"
     depends_on:
       - backend
 
+  # Reverse proxy + HTTPS tự động (Let's Encrypt) cho simplechat.io.vn
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
 volumes:
   mysql_data:
+  caddy_data:
+  caddy_config:
