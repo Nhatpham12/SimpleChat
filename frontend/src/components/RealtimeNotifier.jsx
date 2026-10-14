@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { useToast } from "../context/ToastContext";
 import { contactsAPI } from "../api/contacts";
+import { messagePreview } from "../utils/messageContent";
 
 // Pop-up cho các sự kiện realtime ở mọi trang đã đăng nhập:
 // lời mời kết bạn, lời mời được chấp nhận, và tin nhắn mới khi không ở trang chat
@@ -58,13 +59,13 @@ export default function RealtimeNotifier() {
     };
 
     const handleMessage = (message) => {
-      if (onChatPage || message.sender_id === user.user_id) return;
+      if (onChatPage || message.sender_id === user.user_id || message.type === "system") return;
       toast.show({
         type: "message",
         key: `conv-${message.conversation_id}`,
         user: { username: message.sender_name, avatar_url: message.sender_avatar },
         title: message.sender_name,
-        message: message.content,
+        message: messagePreview(message),
         onClick: () => navigate("/chat", { state: { conversationId: message.conversation_id } }),
       });
     };

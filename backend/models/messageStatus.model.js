@@ -59,4 +59,31 @@ messageStatus.markAllAsRead = (conversation_id, receiver_id, callback) => {
   });
 };
 
+messageStatus.getLastMessageId = (conversation_id, callback) => {
+  const sqlString = `SELECT MAX(message_id) AS last_id FROM Messages WHERE conversation_id = ?`;
+  db.query(sqlString, [conversation_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result[0].last_id || null);
+  });
+};
+
+// Tin mới nhất mỗi thành viên khác đã xem: tin đã đánh dấu "read" hoặc tin chính họ gửi sau đó
+messageStatus.getSeenByConversation = (conversation_id, user_id, callback) => {
+  const sqlString = `SELECT p.user_id, u.username, u.avatar_url,
+      GREATEST(
+        COALESCE((SELECT MAX(ms.message_id) FROM MessageStatus ms
+                    INNER JOIN Messages m ON m.message_id = ms.message_id
+                   WHERE m.conversation_id = p.conversation_id AND ms.receiver_id = p.user_id AND ms.status = 'read'), 0),
+        COALESCE((SELECT MAX(m2.message_id) FROM Messages m2
+                   WHERE m2.conversation_id = p.conversation_id AND m2.sender_id = p.user_id), 0)
+      ) AS last_seen_id
+    FROM Participants p
+    INNER JOIN Users u ON u.user_id = p.user_id
+    WHERE p.conversation_id = ? AND p.user_id <> ?`;
+  db.query(sqlString, [conversation_id, user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.map((r) => ({ ...r, last_seen_id: Number(r.last_seen_id) || 0 })));
+  });
+};
+
 module.exports = messageStatus;

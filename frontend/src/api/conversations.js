@@ -7,5 +7,6 @@ export const conversationsAPI = {
   update: (id, data) => api.put(`/conversations/${id}`, data),
   delete: (id) => api.delete(`/conversations/${id}`),
   addMembers: (id, member_ids) => api.post(`/conversations/${id}/members`, { member_ids }),
+  leave: (id, userId) => api.delete(`/conversations/${id}/members/${userId}`),
   removeMember: (id, memberId) => api.delete(`/conversations/${id}/members/${memberId}`),
 };

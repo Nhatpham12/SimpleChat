@@ -34,10 +34,10 @@ const setupSocket = (io) => {
     socket.on("join_conversation", handleJoinConversation(socket));
     socket.on("leave_conversation", handleLeaveConversation(socket));
 
-    socket.on("send_message", handleMessage(socket, io, { has: (id) => require("./onlineUsers").isUserOnline(id) }));
+    socket.on("send_message", handleMessage(socket, io));
     socket.on("typing_start", handleTypingStart(socket));
     socket.on("typing_stop", handleTypingStop(socket));
-    socket.on("mark_read", handleMarkRead(socket));
+    socket.on("mark_read", handleMarkRead(socket, io));
 
     socket.on("disconnect", () => {
       console.log(`User disconnected: ${userId} (socket: ${socket.id})`);

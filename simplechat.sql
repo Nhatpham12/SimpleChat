@@ -46,7 +46,8 @@ CREATE TABLE Participants (
     conversation_id INT NOT NULL,
     user_id         INT NOT NULL,
     role            ENUM('admin','member') DEFAULT 'member',
-    joined_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    cleared_before_id INT NOT NULL DEFAULT 0,
+    joined_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (conversation_id) REFERENCES Conversations(conversation_id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
     UNIQUE KEY uq_participants (conversation_id, user_id)
@@ -75,7 +76,8 @@ CREATE TABLE Attachments (
     attachment_id INT AUTO_INCREMENT PRIMARY KEY,
     message_id    INT NOT NULL,
     file_url      TEXT NOT NULL,
-    file_type     VARCHAR(50) DEFAULT NULL,
+    file_name     VARCHAR(255) DEFAULT NULL,
+    file_type     VARCHAR(255) DEFAULT NULL,
     file_size     INT DEFAULT NULL,
     uploaded_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (message_id) REFERENCES Messages(message_id) ON DELETE CASCADE

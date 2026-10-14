@@ -2,6 +2,21 @@ const conversations = require("../models/conversation.model");
 const participants = require("../models/participants.model");
 const userContacts = require("../models/userContacts.model");
 const db = require("../common/connect");
+const users = require("../models/users.model");
+const { deliverMessage } = require("../common/deliverMessage");
+
+// Sau khi 1 người rời / bị xóa khỏi nhóm: nhóm luôn còn ít nhất 1 admin, nhóm trống thì xóa luôn
+const ensureGroupHealthy = (conversationId, callback) => {
+  participants.getByConversationId(conversationId, (err, members) => {
+    if (err) return callback(err);
+    if (members.length === 0) {
+      return conversations.delete(conversationId, () => callback(null, { deleted: true }));
+    }
+    if (members.some((m) => m.role === "admin")) return callback(null, {});
+    // getByConversationId sắp theo joined_at → người vào sớm nhất lên làm admin
+    participants.updateRole(conversationId, members[0].user_id, "admin", () => callback(null, {}));
+  });
+};
 
 // Cho socket của các thành viên join room mới và báo client tải lại danh sách conversation
 const notifyMembersAdded = (req, conversationId, memberIds) => {
@@ -128,7 +143,7 @@ const conversationsController = {
       SELECT c.conversation_id, c.type, c.conversation_name, c.avatar_url, c.created_by, c.created_at,
              ou.user_id AS other_user_id, ou.username AS other_username, ou.avatar_url AS other_avatar_url,
              lm.message_id AS last_message_id, lm.content AS last_content, lm.sender_id AS last_sender_id,
-             lm.created_at AS last_created_at, lm.is_deleted AS last_is_deleted, lu.username AS last_sender_name,
+             lm.created_at AS last_created_at, lm.is_deleted AS last_is_deleted, lm.type AS last_type, lu.username AS last_sender_name,
              (SELECT COUNT(*) FROM MessageStatus ms
                 INNER JOIN Messages um ON um.message_id = ms.message_id
                WHERE um.conversation_id = c.conversation_id AND ms.receiver_id = ? AND ms.status <> 'read') AS unread_count
@@ -137,7 +152,8 @@ const conversationsController = {
       LEFT JOIN Participants op ON c.type = 'direct' AND op.conversation_id = c.conversation_id AND op.user_id <> ?
       LEFT JOIN Users ou ON ou.user_id = op.user_id
       LEFT JOIN Messages lm ON lm.message_id = (
-        SELECT MAX(m2.message_id) FROM Messages m2 WHERE m2.conversation_id = c.conversation_id
+        SELECT MAX(m2.message_id) FROM Messages m2
+         WHERE m2.conversation_id = c.conversation_id AND m2.message_id > p.cleared_before_id
       )
       LEFT JOIN Users lu ON lu.user_id = lm.sender_id
       ORDER BY COALESCE(lm.created_at, c.created_at) DESC, c.conversation_id DESC
@@ -149,7 +165,7 @@ const conversationsController = {
       const data = result.map(
         ({
           other_user_id, other_username, other_avatar_url,
-          last_message_id, last_content, last_sender_id, last_created_at, last_is_deleted, last_sender_name,
+          last_message_id, last_content, last_sender_id, last_created_at, last_is_deleted, last_type, last_sender_name,
           unread_count,
           ...conv
         }) => ({
@@ -161,7 +177,8 @@ const conversationsController = {
           last_message: last_message_id
             ? {
                 message_id: last_message_id,
-                content: last_content,
+                content: last_is_deleted ? "" : last_content,
+                type: last_type,
                 sender_id: last_sender_id,
                 sender_name: last_sender_name,
                 created_at: last_created_at,
@@ -380,7 +397,7 @@ const conversationsController = {
     });
   },
 
-  // DELETE /api/conversations/:id/members/:memberId — xóa thành viên khỏi group
+  // DELETE /api/conversations/:id/members/:memberId — rời nhóm (memberId = chính mình) hoặc admin xóa thành viên
   removeMember: (req, res) => {
     const { id, memberId } = req.params;
     const userId = req.user.user_id;
@@ -408,15 +425,27 @@ const conversationsController = {
           return res.status(403).json({ status: "error", message: "Bạn không có quyền xóa thành viên này" });
         }
 
-        participants.delete(id, memberId, (err, success) => {
-          if (err) {
-            return res.status(500).json({ status: "error", message: "Lỗi khi xóa thành viên" });
-          }
-          if (!success) {
-            return res.status(404).json({ status: "error", message: "Thành viên không tồn tại trong nhóm" });
-          }
-          req.app.get("io")?.in(`user:${memberId}`).socketsLeave(`conversation:${id}`);
-          res.json({ status: "ok", message: "Đã xóa thành viên khỏi nhóm" });
+        users.getById(memberId, (err, member) => {
+          participants.delete(id, memberId, (err, success) => {
+            if (err) {
+              return res.status(500).json({ status: "error", message: "Lỗi khi xóa thành viên" });
+            }
+            if (!success) {
+              return res.status(404).json({ status: "error", message: "Thành viên không tồn tại trong nhóm" });
+            }
+            const io = req.app.get("io");
+            io?.in(`user:${memberId}`).socketsLeave(`conversation:${id}`);
+            io?.to(`user:${memberId}`).emit("conversation_removed", { conversation_id: Number(id) });
+
+            ensureGroupHealthy(id, (err, result) => {
+              if (!err && !result?.deleted) {
+                const name = member?.username || "Một thành viên";
+                const content = isSelf ? `${name} đã rời khỏi nhóm` : `${req.user.username || "Quản trị viên"} đã mời ${name} ra khỏi nhóm`;
+                deliverMessage(io, { conversation_id: id, sender_id: userId, content, type: "system" });
+              }
+              res.json({ status: "ok", message: isSelf ? "Bạn đã rời khỏi nhóm" : "Đã xóa thành viên khỏi nhóm" });
+            });
+          });
         });
       });
     });

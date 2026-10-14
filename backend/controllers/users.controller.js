@@ -160,6 +160,20 @@ const usersController = {
     });
   },
 
+  // POST /api/users/me/avatar — ảnh đã được multer đẩy lên Cloudinary (crop vuông 400px)
+  uploadAvatar: (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ status: "error", message: "Chưa chọn ảnh" });
+    }
+    const avatarUrl = req.file.path;
+    users.updateAvatar(req.user.user_id, avatarUrl, (err, success) => {
+      if (err || !success) {
+        return res.status(500).json({ status: "error", message: "Lỗi khi cập nhật avatar" });
+      }
+      res.json({ status: "ok", message: "Cập nhật avatar thành công", data: { avatar_url: avatarUrl } });
+    });
+  },
+
   // PATCH /api/users/:id/status
   updateStatus: (req, res) => {
     const { id } = req.params;

@@ -10,6 +10,19 @@ import { contactsAPI } from "../api/contacts";
 import UserAvatar from "../components/UserAvatar";
 import TypingIndicator from "../components/TypingIndicator";
 import Logo from "../components/Logo";
+import ChatInfoPanel from "../components/ChatInfoPanel";
+import {
+  linkify,
+  formatFileSize,
+  fileExt,
+  imageUrl,
+  isImage,
+  isVideo,
+  messagePreview,
+} from "../utils/messageContent";
+
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const FILE_ACCEPT = "image/*,video/mp4,video/quicktime,video/webm,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip";
 
 const sameId = (a, b) => a != null && b != null && Number(a) === Number(b);
 
@@ -37,34 +50,6 @@ const formatDayLabel = (value) => {
 
 const formatTime = (value) =>
   new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-
-// Bỏ dấu + chữ thường từng ký tự (giữ nguyên độ dài để map vị trí về chuỗi gốc)
-// (emoji 2 đơn vị UTF-16 → 1 ký tự giữ chỗ để vị trí không lệch)
-const foldChar = (ch) => {
-  if (ch.length > 1) return "￿";
-  const f = ch.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
-  return f.length === 1 ? f : ch;
-};
-
-// Tô sáng phần khớp từ khóa, không phân biệt hoa thường và dấu (giống cách server tìm)
-const highlightText = (text, keyword) => {
-  if (!keyword) return text;
-  const chars = Array.from(text);
-  const folded = chars.map(foldChar).join("");
-  const key = Array.from(keyword).map(foldChar).join("");
-  if (folded.length !== chars.length || !key) return text;
-  const parts = [];
-  let start = 0;
-  let idx = folded.indexOf(key);
-  while (idx !== -1) {
-    if (idx > start) parts.push(chars.slice(start, idx).join(""));
-    parts.push(<mark key={idx}>{chars.slice(idx, idx + key.length).join("")}</mark>);
-    start = idx + key.length;
-    idx = folded.indexOf(key, start);
-  }
-  if (start < chars.length) parts.push(chars.slice(start).join(""));
-  return parts;
-};
 
 const Icon = {
   addUser: (
@@ -126,6 +111,31 @@ const Icon = {
       <path d="M22 2 15 22l-4-9-9-4 20-7z" />
     </svg>
   ),
+  info: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9.5" />
+      <line x1="12" y1="11" x2="12" y2="16.5" />
+      <circle cx="12" cy="7.6" r="0.6" fill="currentColor" />
+    </svg>
+  ),
+  attach: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" />
+    </svg>
+  ),
+  recall: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </svg>
+  ),
+  download: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 21h14" />
+    </svg>
+  ),
 };
 
 export default function ChatPage() {
@@ -153,24 +163,46 @@ export default function ChatPage() {
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [friendsForGroup, setFriendsForGroup] = useState([]);
 
-  // Tìm tin nhắn trong cuộc trò chuyện đang mở
-  const [showMessageSearch, setShowMessageSearch] = useState(false);
-  const [messageQuery, setMessageQuery] = useState("");
-  const [messageResults, setMessageResults] = useState([]);
-  const [searchingMessages, setSearchingMessages] = useState(false);
+  // Sidebar thông tin bên phải (tìm tin nhắn, ảnh/tài liệu/link, rời nhóm, xóa lịch sử)
+  const [showInfo, setShowInfo] = useState(() => window.innerWidth >= 1200);
+  const [focusSearchSignal, setFocusSearchSignal] = useState(0);
+  const [infoRefreshKey, setInfoRefreshKey] = useState(0);
   const [highlightId, setHighlightId] = useState(null);
   // true khi đang xem tin nhắn cũ (nhảy tới kết quả tìm kiếm) thay vì tin mới nhất
   const [viewingOld, setViewingOld] = useState(false);
+  // Tin mới nhất từng thành viên khác đã xem: { [user_id]: { username, avatar_url, last_seen_id } }
+  const [seenBy, setSeenBy] = useState({});
+  const [uploading, setUploading] = useState(null);
 
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
   const conversationsRef = useRef([]);
   const userSearchSeqRef = useRef(0);
   const composerRef = useRef(null);
+  const seenByRef = useRef({});
+  // Nhóm mình đang tự rời (để không hiện thêm pop-up "không còn trong nhóm")
+  const leavingRef = useRef(null);
+
+  useEffect(() => {
+    seenByRef.current = seenBy;
+  }, [seenBy]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // Ảnh tải xong làm khung cao lên: nếu người dùng đang ở cuối thì giữ ở cuối
+  const messagesBoxRef = useRef(null);
+  const stickToBottomRef = useRef(true);
+  const handleMessagesScroll = () => {
+    const el = messagesBoxRef.current;
+    if (el) stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+  };
+  const scrollToBottomIfNear = () => {
+    const el = messagesBoxRef.current;
+    if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
   };
 
   const fetchConversations = useCallback(async () => {
@@ -240,47 +272,63 @@ export default function ChatPage() {
 
   const activeConversationId = activeConversation?.conversation_id;
 
+  // Lấy trạng thái "đã xem" của các thành viên khác
+  const fetchSeen = useCallback(async (conversationId) => {
+    try {
+      const res = await messagesAPI.getSeen(conversationId);
+      const map = {};
+      (res.data.data || []).forEach((s) => {
+        map[s.user_id] = s;
+      });
+      setSeenBy(map);
+    } catch (err) {
+      console.error("Error fetching seen:", err);
+    }
+  }, []);
+
+  // Cập nhật mốc "đã xem" của 1 người (chỉ tiến lên, không lùi)
+  const bumpSeen = (userId, messageId, profile) => {
+    setSeenBy((prev) => {
+      const cur = prev[userId];
+      if (cur && cur.last_seen_id >= messageId) return prev;
+      return { ...prev, [userId]: { ...(cur || { user_id: userId, ...profile }), last_seen_id: messageId } };
+    });
+  };
+
   // Server đã tự join socket vào mọi conversation của user; join ở đây chỉ để chắc chắn.
   // Không leave khi chuyển cuộc trò chuyện, nếu không sẽ mất tin nhắn realtime của cuộc đó.
   useEffect(() => {
     if (!activeConversationId) return;
     joinConversation(activeConversationId);
+    setSeenBy({});
     fetchMessages(activeConversationId);
+    fetchSeen(activeConversationId);
     markRead(activeConversationId);
     setConversations((prev) =>
       prev.map((c) => (sameId(c.conversation_id, activeConversationId) ? { ...c, unread_count: 0 } : c))
     );
-    setShowMessageSearch(false);
-    setMessageQuery("");
-    setMessageResults([]);
     setTypingUsers({});
+    setUploading(null);
     setTimeout(() => composerRef.current?.focus(), 0);
-  }, [activeConversationId, joinConversation, fetchMessages, markRead]);
+  }, [activeConversationId, joinConversation, fetchMessages, fetchSeen, markRead]);
 
-  // Tìm tin nhắn (debounce 300ms)
+  // Tin đến khi tab đang ẩn chưa tính là "đã xem"; quay lại tab mới đánh dấu đã đọc
   useEffect(() => {
-    const q = messageQuery.trim();
-    if (!showMessageSearch || !activeConversationId || q.length === 0) {
-      setMessageResults([]);
-      return;
-    }
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      setSearchingMessages(true);
-      try {
-        const res = await messagesAPI.search(activeConversationId, q);
-        if (!cancelled) setMessageResults(res.data.data || []);
-      } catch (err) {
-        console.error("Error searching messages:", err);
-      } finally {
-        if (!cancelled) setSearchingMessages(false);
-      }
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
+    if (!activeConversationId) return;
+    const handleVisible = () => {
+      if (document.hidden) return;
+      markRead(activeConversationId);
+      setConversations((prev) =>
+        prev.map((c) => (sameId(c.conversation_id, activeConversationId) ? { ...c, unread_count: 0 } : c))
+      );
     };
-  }, [messageQuery, showMessageSearch, activeConversationId]);
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("focus", handleVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("focus", handleVisible);
+    };
+  }, [activeConversationId, markRead]);
 
   const getConversationName = (conv) => {
     if (conv.type === "group") return conv.conversation_name || "Nhóm chưa đặt tên";
@@ -300,27 +348,38 @@ export default function ChatPage() {
     const handleNewMessage = (message) => {
       const isActive = sameId(message.conversation_id, activeConversation?.conversation_id);
       const isOwn = sameId(message.sender_id, user.user_id);
+      const isSystem = message.type === "system";
+      const isVisible = !document.hidden;
 
       if (isActive) {
         // Đang xem tin cũ thì không chèn vào cuối (sẽ bị đứt đoạn); bấm "Về tin nhắn mới nhất" để xem
         if (!viewingOld) {
-          setMessages((prev) => [...prev, message]);
+          setMessages((prev) => (prev.some((m) => sameId(m.message_id, message.message_id)) ? prev : [...prev, message]));
           setTimeout(scrollToBottom, 60);
         }
-        markRead(activeConversation.conversation_id);
+        // Người vừa gửi tin chắc chắn đã xem tới tin đó
+        if (!isOwn && !isSystem) {
+          bumpSeen(message.sender_id, message.message_id, { username: message.sender_name, avatar_url: message.sender_avatar });
+        }
+        if (isVisible) markRead(activeConversation.conversation_id);
+        // Có file / link mới, hoặc thành viên nhóm thay đổi → tải lại sidebar thông tin
+        if (message.file_url || isSystem || /https?:\/\/|www\./i.test(message.content || "")) {
+          setInfoRefreshKey((k) => k + 1);
+        }
       }
 
       const conv = conversationsRef.current.find((c) => sameId(c.conversation_id, message.conversation_id));
 
       // Pop-up khi tin đến ở cuộc trò chuyện khác, hoặc khi đang ở tab khác
-      if (!isOwn && (!isActive || document.hidden)) {
+      if (!isOwn && !isSystem && (!isActive || !isVisible)) {
         const isGroup = conv?.type === "group";
+        const text = messagePreview(message);
         toast.show({
           type: "message",
           key: `conv-${message.conversation_id}`,
           user: isGroup ? getAvatarSubject(conv) : { username: message.sender_name, avatar_url: message.sender_avatar },
           title: isGroup ? getConversationName(conv) : message.sender_name,
-          message: isGroup ? `${message.sender_name}: ${message.content}` : message.content,
+          message: isGroup ? `${message.sender_name}: ${text}` : text,
           onClick: () => {
             if (conv) setActiveConversation(conv);
           },
@@ -332,15 +391,17 @@ export default function ChatPage() {
         fetchConversations();
         return;
       }
+      const countsUnread = !isOwn && !isSystem && (!isActive || !isVisible);
       setConversations((prev) => {
         const idx = prev.findIndex((c) => sameId(c.conversation_id, message.conversation_id));
         if (idx === -1) return prev;
         const updated = {
           ...prev[idx],
-          unread_count: isActive || isOwn ? 0 : (prev[idx].unread_count || 0) + 1,
+          unread_count: countsUnread ? (prev[idx].unread_count || 0) + 1 : isActive ? 0 : prev[idx].unread_count,
           last_message: {
             message_id: message.message_id,
             content: message.content,
+            type: message.type,
             sender_id: message.sender_id,
             sender_name: message.sender_name,
             created_at: message.created_at,
@@ -349,6 +410,46 @@ export default function ChatPage() {
         };
         return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
       });
+    };
+
+    // Thành viên khác vừa đọc tới message_id
+    const handleMessagesSeen = ({ conversation_id, user_id, message_id }) => {
+      if (!sameId(conversation_id, activeConversation?.conversation_id) || sameId(user_id, user.user_id)) return;
+      if (!seenByRef.current[user_id]) {
+        fetchSeen(conversation_id);
+        return;
+      }
+      bumpSeen(user_id, message_id);
+    };
+
+    // Tin bị thu hồi (bởi người gửi, có thể ở tab/thiết bị khác)
+    const handleMessageDeleted = ({ conversation_id, message_id }) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          sameId(m.message_id, message_id) ? { ...m, is_deleted: true, content: "", file_url: null, file_name: null, file_type: null } : m
+        )
+      );
+      setConversations((prev) =>
+        prev.map((c) =>
+          sameId(c.conversation_id, conversation_id) && sameId(c.last_message?.message_id, message_id)
+            ? { ...c, last_message: { ...c.last_message, is_deleted: true, content: "" } }
+            : c
+        )
+      );
+      if (sameId(conversation_id, activeConversation?.conversation_id)) setInfoRefreshKey((k) => k + 1);
+    };
+
+    // Mình rời nhóm (từ tab khác) hoặc bị quản trị viên mời ra
+    const handleConversationRemoved = ({ conversation_id }) => {
+      const conv = conversationsRef.current.find((c) => sameId(c.conversation_id, conversation_id));
+      setConversations((prev) => prev.filter((c) => !sameId(c.conversation_id, conversation_id)));
+      if (sameId(conversation_id, activeConversation?.conversation_id)) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
+      if (conv && !sameId(leavingRef.current, conversation_id)) {
+        toast.info(`Bạn không còn ở trong nhóm "${getConversationName(conv)}"`);
+      }
     };
 
     const handleSocketError = (err) => {
@@ -377,6 +478,9 @@ export default function ChatPage() {
     };
 
     socket.on("new_message", handleNewMessage);
+    socket.on("messages_seen", handleMessagesSeen);
+    socket.on("message_deleted", handleMessageDeleted);
+    socket.on("conversation_removed", handleConversationRemoved);
     socket.on("user_typing", handleUserTyping);
     socket.on("user_stop_typing", handleUserStopTyping);
     socket.on("conversation_created", handleConversationCreated);
@@ -385,12 +489,15 @@ export default function ChatPage() {
     return () => {
       socket.off("conversation_created", handleConversationCreated);
       socket.off("new_message", handleNewMessage);
+      socket.off("messages_seen", handleMessagesSeen);
+      socket.off("message_deleted", handleMessageDeleted);
+      socket.off("conversation_removed", handleConversationRemoved);
       socket.off("user_typing", handleUserTyping);
       socket.off("user_stop_typing", handleUserStopTyping);
       socket.off("error", handleSocketError);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, activeConversation, viewingOld, user, markRead, fetchConversations, toast]);
+  }, [socket, activeConversation, viewingOld, user, markRead, fetchConversations, fetchSeen, toast]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -536,12 +643,116 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
-  const handleJumpToMessage = (result) => {
-    fetchMessages(activeConversation.conversation_id, result.message_id);
+  const handleJumpToMessage = (messageId) => {
+    fetchMessages(activeConversation.conversation_id, messageId);
+    // Màn hình hẹp: sidebar thông tin che khung chat → đóng lại để thấy tin nhắn
+    if (window.innerWidth < 1200) setShowInfo(false);
   };
 
   const handleBackToLatest = () => {
     fetchMessages(activeConversation.conversation_id);
+  };
+
+  const openSearch = () => {
+    setShowInfo(true);
+    setFocusSearchSignal((n) => n + 1);
+  };
+
+  // Gửi ảnh / tệp: upload qua REST, tin nhắn về lại qua socket "new_message" như tin thường
+  const handleSendFile = async (file) => {
+    if (!file || !activeConversation) return;
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`"${file.name}" lớn hơn 25 MB, chưa gửi được`);
+      return;
+    }
+    const conversationId = activeConversation.conversation_id;
+    if (viewingOld) await fetchMessages(conversationId);
+    setUploading({ name: file.name, progress: 0 });
+    try {
+      await messagesAPI.sendFile(conversationId, file, (progress) =>
+        setUploading((u) => (u ? { ...u, progress } : u))
+      );
+    } catch (err) {
+      toast.error(err.response?.data?.message || `Chưa gửi được "${file.name}"`);
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  const handleFilePicked = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    handleSendFile(file);
+  };
+
+  // Dán ảnh từ clipboard vào ô soạn tin
+  const handlePaste = (e) => {
+    const file = Array.from(e.clipboardData?.files || []).find((f) => f.type.startsWith("image/"));
+    if (file) {
+      e.preventDefault();
+      handleSendFile(file);
+    }
+  };
+
+  const handleRecall = async (msg) => {
+    const ok = await toast.confirm({
+      title: "Thu hồi tin nhắn này?",
+      message: "Mọi người trong cuộc trò chuyện sẽ thấy tin nhắn đã được thu hồi.",
+      confirmLabel: "Thu hồi",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await messagesAPI.delete(msg.message_id);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Chưa thu hồi được tin nhắn");
+    }
+  };
+
+  const handleClearHistory = async () => {
+    const conv = activeConversation;
+    const ok = await toast.confirm({
+      title: "Xóa lịch sử trò chuyện?",
+      message: `Toàn bộ tin nhắn hiện có với ${getConversationName(conv)} sẽ bị xóa ở phía bạn. Người khác vẫn xem được.`,
+      confirmLabel: "Xóa lịch sử",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await messagesAPI.clearHistory(conv.conversation_id);
+      setMessages([]);
+      setViewingOld(false);
+      setHighlightId(null);
+      setConversations((prev) =>
+        prev.map((c) => (sameId(c.conversation_id, conv.conversation_id) ? { ...c, last_message: null, unread_count: 0 } : c))
+      );
+      setInfoRefreshKey((k) => k + 1);
+      toast.success("Đã xóa lịch sử trò chuyện");
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Chưa xóa được lịch sử trò chuyện");
+    }
+  };
+
+  const handleLeaveGroup = async () => {
+    const conv = activeConversation;
+    const ok = await toast.confirm({
+      title: `Rời khỏi nhóm "${getConversationName(conv)}"?`,
+      message: "Bạn sẽ không nhận được tin nhắn của nhóm nữa. Muốn quay lại cần được thêm vào lần nữa.",
+      confirmLabel: "Rời nhóm",
+      danger: true,
+    });
+    if (!ok) return;
+    leavingRef.current = conv.conversation_id;
+    try {
+      await conversationsAPI.leave(conv.conversation_id, user.user_id);
+      setConversations((prev) => prev.filter((c) => !sameId(c.conversation_id, conv.conversation_id)));
+      setActiveConversation(null);
+      setMessages([]);
+      toast.success(`Bạn đã rời khỏi nhóm "${getConversationName(conv)}"`);
+    } catch (err) {
+      leavingRef.current = null;
+      toast.error(err.response?.data?.message || "Chưa rời được nhóm");
+    }
   };
 
   const handleCreateGroup = async (e) => {
@@ -576,7 +787,8 @@ export default function ChatPage() {
   const getPreview = (conv) => {
     const last = conv.last_message;
     if (!last) return conv.type === "group" ? "Nhóm mới tạo, gửi lời chào nhé" : "Chưa có tin nhắn";
-    const text = last.is_deleted ? "Tin nhắn đã bị xóa" : last.content;
+    const text = messagePreview(last);
+    if (last.type === "system") return text;
     if (sameId(last.sender_id, user.user_id)) return `Bạn: ${text}`;
     if (conv.type === "group" && last.sender_name) return `${last.sender_name}: ${text}`;
     return text;
@@ -603,9 +815,74 @@ export default function ChatPage() {
   const typingNames = Object.values(typingUsers);
   const activeOther = activeConversation ? getOtherUser(activeConversation) : null;
   const activeOnline = activeOther ? onlineUsers.includes(activeOther.user_id) : false;
+  const activeSubtitle = !activeConversation
+    ? ""
+    : activeConversation.type === "direct"
+      ? activeOnline ? "Đang hoạt động" : "Ngoại tuyến"
+      : "Nhóm";
+
+  // "Đã gửi" / "Đã xem" dưới tin của mình khi nó là tin mới nhất của cuộc trò chuyện
+  const lastRealMessage = viewingOld ? null : [...messages].reverse().find((m) => m.type !== "system");
+  const receipt =
+    lastRealMessage?.message_id && sameId(lastRealMessage.sender_id, user.user_id)
+      ? {
+          messageId: lastRealMessage.message_id,
+          viewers: Object.values(seenBy).filter((s) => s.last_seen_id >= lastRealMessage.message_id),
+        }
+      : null;
+
+  const renderReceipt = () => {
+    const { viewers } = receipt;
+    if (viewers.length === 0) return <span className="message-receipt">Đã gửi</span>;
+    const names = viewers.map((v) => v.username).join(", ");
+    if (activeConversation.type === "direct") {
+      return (
+        <span className="message-receipt seen" title={`${names} đã xem`}>
+          <UserAvatar user={viewers[0]} size={14} />
+          Đã xem
+        </span>
+      );
+    }
+    return (
+      <span className="message-receipt seen" title={`Đã xem: ${names}`}>
+        <span className="receipt-avatars">
+          {viewers.slice(0, 5).map((v) => <UserAvatar key={v.user_id} user={v} size={16} />)}
+        </span>
+        {viewers.length > 5 ? `+${viewers.length - 5}` : ""} Đã xem
+      </span>
+    );
+  };
+
+  // Nội dung trong bong bóng theo loại tin: ảnh, video, tệp, văn bản (link bấm được)
+  const renderMessageBody = (msg) => {
+    if (msg.is_deleted) return <p className="message-content deleted">Tin nhắn đã được thu hồi</p>;
+    if (msg.file_url && isImage(msg)) {
+      return (
+        <a href={msg.file_url} target="_blank" rel="noopener noreferrer" className="message-image">
+          <img src={imageUrl(msg.file_url)} alt={msg.file_name || "Ảnh"} loading="lazy" onLoad={() => !viewingOld && scrollToBottomIfNear()} />
+        </a>
+      );
+    }
+    if (msg.file_url && isVideo(msg)) {
+      return <video className="message-video" src={msg.file_url} controls preload="metadata" />;
+    }
+    if (msg.file_url) {
+      return (
+        <a href={msg.file_url} target="_blank" rel="noopener noreferrer" className="message-file">
+          <span className="file-ext">{fileExt(msg.file_name || msg.content)}</span>
+          <span className="message-file-text">
+            <span className="message-file-name">{msg.file_name || msg.content}</span>
+            <span className="message-file-size">{formatFileSize(msg.file_size) || "Tệp đính kèm"}</span>
+          </span>
+          <span className="message-file-dl">{Icon.download}</span>
+        </a>
+      );
+    }
+    return <p className="message-content">{linkify(msg.content)}</p>;
+  };
 
   return (
-    <div className={`chat-page ${activeConversation ? "chat-open" : ""}`}>
+    <div className={`chat-page ${activeConversation ? "chat-open" : ""} ${activeConversation && showInfo ? "info-open" : ""}`}>
       {/* Sidebar */}
       <aside className="chat-sidebar">
         <div className="sidebar-header">
@@ -818,55 +1095,26 @@ export default function ChatPage() {
                   <span className="header-status">Nhóm</span>
                 )}
               </div>
-              <button
-                onClick={() => { setShowMessageSearch(!showMessageSearch); setMessageQuery(""); }}
-                className={`icon-btn header-search-btn ${showMessageSearch ? "active" : ""}`}
-                title="Tìm tin nhắn"
-                aria-label="Tìm tin nhắn"
-                aria-expanded={showMessageSearch}
-              >
-                {Icon.search}
-              </button>
-            </header>
-
-            {showMessageSearch && (
-              <div className="message-search">
-                <input
-                  type="search"
-                  value={messageQuery}
-                  onChange={(e) => setMessageQuery(e.target.value)}
-                  placeholder="Tìm trong cuộc trò chuyện này..."
-                  className="input"
-                  autoFocus
-                />
-                {messageQuery.trim() && (
-                  <div className="message-search-results">
-                    {searchingMessages && messageResults.length === 0 ? (
-                      <p className="sheet-hint">Đang tìm...</p>
-                    ) : messageResults.length === 0 ? (
-                      <p className="sheet-hint">Không có tin nhắn nào chứa "{messageQuery.trim()}".</p>
-                    ) : (
-                      messageResults.map((r) => (
-                        <button
-                          key={r.message_id}
-                          className={`message-search-item ${sameId(highlightId, r.message_id) ? "active" : ""}`}
-                          onClick={() => handleJumpToMessage(r)}
-                        >
-                          <UserAvatar user={{ username: r.sender_name, avatar_url: r.sender_avatar }} size={28} />
-                          <span className="message-search-info">
-                            <span className="message-search-meta">
-                              <span>{sameId(r.sender_id, user.user_id) ? "Bạn" : r.sender_name}</span>
-                              <span>{new Date(r.created_at).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" })}</span>
-                            </span>
-                            <span className="message-search-content">{highlightText(r.content, messageQuery.trim())}</span>
-                          </span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
+              <div className="chat-header-actions">
+                <button
+                  onClick={openSearch}
+                  className="icon-btn"
+                  title="Tìm tin nhắn"
+                  aria-label="Tìm tin nhắn"
+                >
+                  {Icon.search}
+                </button>
+                <button
+                  onClick={() => setShowInfo((v) => !v)}
+                  className={`icon-btn ${showInfo ? "active" : ""}`}
+                  title="Thông tin cuộc trò chuyện"
+                  aria-label="Thông tin cuộc trò chuyện"
+                  aria-expanded={showInfo}
+                >
+                  {Icon.info}
+                </button>
               </div>
-            )}
+            </header>
 
             {viewingOld && !loadingMessages && (
               <div className="viewing-old-banner">
@@ -875,7 +1123,7 @@ export default function ChatPage() {
               </div>
             )}
 
-            <div className="chat-messages">
+            <div className="chat-messages" ref={messagesBoxRef} onScroll={handleMessagesScroll}>
               {loadingMessages ? (
                 <div className="app-loading inline"><div className="spinner" aria-label="Đang tải tin nhắn" /></div>
               ) : messages.length === 0 ? (
@@ -892,18 +1140,34 @@ export default function ChatPage() {
                 messages.map((msg, idx) => {
                   const prev = messages[idx - 1];
                   const next = messages[idx + 1];
-                  const isOwn = msg.sender_id === user.user_id;
                   const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(msg.created_at).toDateString();
-                  const firstOfRun = newDay || prev?.sender_id !== msg.sender_id;
+                  const dayDivider = newDay && (
+                    <div className="day-divider"><span>{formatDayLabel(msg.created_at)}</span></div>
+                  );
+
+                  if (msg.type === "system") {
+                    return (
+                      <div key={msg.message_id || idx} className="message-block">
+                        {dayDivider}
+                        <p className="message-system">{msg.content}</p>
+                      </div>
+                    );
+                  }
+
+                  const isOwn = sameId(msg.sender_id, user.user_id);
+                  // Tin hệ thống chen giữa cũng ngắt chuỗi tin liên tiếp
+                  const prevSender = prev && prev.type !== "system" ? prev.sender_id : null;
+                  const nextSender = next && next.type !== "system" ? next.sender_id : null;
+                  const firstOfRun = newDay || !sameId(prevSender, msg.sender_id);
                   const lastOfRun =
-                    !next ||
-                    next.sender_id !== msg.sender_id ||
+                    !sameId(nextSender, msg.sender_id) ||
                     new Date(next.created_at).toDateString() !== new Date(msg.created_at).toDateString();
+                  const isMedia = !msg.is_deleted && msg.file_url && (isImage(msg) || isVideo(msg));
+                  const isFile = !msg.is_deleted && msg.file_url && !isMedia;
+                  const showReceipt = receipt && sameId(receipt.messageId, msg.message_id);
                   return (
                     <div key={msg.message_id || idx} className="message-block">
-                      {newDay && (
-                        <div className="day-divider"><span>{formatDayLabel(msg.created_at)}</span></div>
-                      )}
+                      {dayDivider}
                       <div
                         id={msg.message_id ? `msg-${msg.message_id}` : undefined}
                         className={`message ${isOwn ? "own" : "other"} ${firstOfRun ? "first" : ""} ${lastOfRun ? "last" : ""} ${sameId(highlightId, msg.message_id) ? "highlight" : ""}`}
@@ -917,12 +1181,30 @@ export default function ChatPage() {
                           {!isOwn && firstOfRun && activeConversation.type === "group" && (
                             <span className="message-sender">{msg.sender_name}</span>
                           )}
-                          <div className="message-bubble" title={new Date(msg.created_at).toLocaleString("vi-VN")}>
-                            <p className={`message-content ${msg.is_deleted ? "deleted" : ""}`}>
-                              {msg.is_deleted ? "Tin nhắn đã bị xóa" : msg.content}
-                            </p>
+                          <div className="message-row">
+                            {isOwn && !msg.is_deleted && msg.message_id && (
+                              <button
+                                className="message-action"
+                                onClick={() => handleRecall(msg)}
+                                title="Thu hồi tin nhắn"
+                                aria-label="Thu hồi tin nhắn"
+                              >
+                                {Icon.recall}
+                              </button>
+                            )}
+                            <div
+                              className={`message-bubble ${isMedia ? "media" : ""} ${isFile ? "file" : ""}`}
+                              title={new Date(msg.created_at).toLocaleString("vi-VN")}
+                            >
+                              {renderMessageBody(msg)}
+                            </div>
                           </div>
-                          {lastOfRun && <span className="message-time">{formatTime(msg.created_at)}</span>}
+                          {(lastOfRun || showReceipt) && (
+                            <span className="message-meta">
+                              {lastOfRun && <span className="message-time">{formatTime(msg.created_at)}</span>}
+                              {showReceipt && renderReceipt()}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -935,12 +1217,32 @@ export default function ChatPage() {
               <div ref={messagesEndRef} />
             </div>
 
+            {uploading && (
+              <div className="upload-progress" role="status">
+                <span className="upload-name">Đang gửi “{uploading.name}”</span>
+                <span className="upload-bar"><span style={{ width: `${uploading.progress}%` }} /></span>
+                <span className="upload-pct">{uploading.progress}%</span>
+              </div>
+            )}
+
             <form className="chat-input" onSubmit={handleSendMessage}>
+              <input ref={fileInputRef} type="file" accept={FILE_ACCEPT} onChange={handleFilePicked} hidden />
+              <button
+                type="button"
+                className="composer-attach"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={!!uploading}
+                title="Gửi ảnh, video hoặc tài liệu"
+                aria-label="Gửi ảnh, video hoặc tài liệu"
+              >
+                {Icon.attach}
+              </button>
               <input
                 ref={composerRef}
                 type="text"
                 value={newMessage}
                 onChange={handleTyping}
+                onPaste={handlePaste}
                 placeholder={`Nhắn cho ${getConversationName(activeConversation)}...`}
                 autoComplete="off"
                 aria-label="Nội dung tin nhắn"
@@ -959,6 +1261,27 @@ export default function ChatPage() {
           </div>
         )}
       </main>
+
+      {activeConversation && showInfo && (
+        <>
+          <div className="chat-info-backdrop" onClick={() => setShowInfo(false)} aria-hidden="true" />
+          <ChatInfoPanel
+            conversation={activeConversation}
+            title={getConversationName(activeConversation)}
+            subtitle={activeSubtitle}
+            avatarSubject={getAvatarSubject(activeConversation)}
+            currentUserId={user.user_id}
+            onlineUsers={onlineUsers}
+            highlightId={highlightId}
+            focusSearchSignal={focusSearchSignal}
+            refreshKey={infoRefreshKey}
+            onJumpToMessage={handleJumpToMessage}
+            onClearHistory={handleClearHistory}
+            onLeaveGroup={handleLeaveGroup}
+            onClose={() => setShowInfo(false)}
+          />
+        </>
+      )}
     </div>
   );
 }

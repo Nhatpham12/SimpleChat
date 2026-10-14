@@ -31,9 +31,9 @@ const messagesController = {
       // ?around=<message_id>: lấy tin nhắn xung quanh 1 tin (nhảy tới kết quả tìm kiếm)
       const around = parseInt(req.query.around);
       if (around) {
-        return messages.getAround(conversationId, around, Math.ceil(limit / 2), done);
+        return messages.getAround(conversationId, around, Math.ceil(limit / 2), participant.cleared_before_id, done);
       }
-      messages.getByConversationId(conversationId, limit, offset, done);
+      messages.getByConversationId(conversationId, participant.cleared_before_id, limit, offset, done);
     });
   },
 
@@ -58,7 +58,7 @@ const messagesController = {
         return res.status(403).json({ status: "error", message: "Bạn không phải thành viên cuộc trò chuyện này" });
       }
 
-      messages.search(conversationId, q, 50, (err, result) => {
+      messages.search(conversationId, q, participant.cleared_before_id, 50, (err, result) => {
         if (err) {
           return res.status(500).json({ status: "error", message: "Lỗi khi tìm kiếm tin nhắn" });
         }
@@ -67,9 +67,79 @@ const messagesController = {
     });
   },
 
+  // GET /api/messages/:conversationId/shared?kind=media|file|link — ảnh, tài liệu, link đã gửi
+  getShared: (req, res) => {
+    const { conversationId } = req.params;
+    const userId = req.user.user_id;
+    const kind = ["media", "file", "link"].includes(req.query.kind) ? req.query.kind : "media";
+
+    participants.getOne(conversationId, userId, (err, participant) => {
+      if (err) {
+        return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra thành viên" });
+      }
+      if (!participant) {
+        return res.status(403).json({ status: "error", message: "Bạn không phải thành viên cuộc trò chuyện này" });
+      }
+
+      messages.getShared(conversationId, kind, participant.cleared_before_id, 200, (err, result) => {
+        if (err) {
+          return res.status(500).json({ status: "error", message: "Lỗi khi lấy dữ liệu đã chia sẻ" });
+        }
+        res.json({ status: "ok", data: result });
+      });
+    });
+  },
+
+  // GET /api/messages/:conversationId/seen — tin mới nhất mà từng thành viên khác đã xem
+  getSeen: (req, res) => {
+    const { conversationId } = req.params;
+    const userId = req.user.user_id;
+
+    participants.getOne(conversationId, userId, (err, participant) => {
+      if (err) {
+        return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra thành viên" });
+      }
+      if (!participant) {
+        return res.status(403).json({ status: "error", message: "Bạn không phải thành viên cuộc trò chuyện này" });
+      }
+
+      messageStatus.getSeenByConversation(conversationId, userId, (err, result) => {
+        if (err) {
+          return res.status(500).json({ status: "error", message: "Lỗi khi lấy trạng thái đã xem" });
+        }
+        res.json({ status: "ok", data: result });
+      });
+    });
+  },
+
+  // DELETE /api/messages/conversation/:conversationId/history — xóa lịch sử trò chuyện (chỉ phía mình)
+  clearHistory: (req, res) => {
+    const { conversationId } = req.params;
+    const userId = req.user.user_id;
+
+    participants.getOne(conversationId, userId, (err, participant) => {
+      if (err) {
+        return res.status(500).json({ status: "error", message: "Lỗi khi kiểm tra thành viên" });
+      }
+      if (!participant) {
+        return res.status(403).json({ status: "error", message: "Bạn không phải thành viên cuộc trò chuyện này" });
+      }
+
+      participants.clearHistory(conversationId, userId, (err) => {
+        if (err) {
+          return res.status(500).json({ status: "error", message: "Lỗi khi xóa lịch sử trò chuyện" });
+        }
+        messageStatus.markAllAsRead(conversationId, userId, () => {
+          res.json({ status: "ok", message: "Đã xóa lịch sử trò chuyện" });
+        });
+      });
+    });
+  },
+
   // GET /api/messages/single/:messageId — lấy 1 tin nhắn
   getById: (req, res) => {
     const { messageId } = req.params;
+    const userId = req.user.user_id;
 
     messages.getById(messageId, (err, message) => {
       if (err) {
@@ -78,7 +148,12 @@ const messagesController = {
       if (!message) {
         return res.status(404).json({ status: "error", message: "Không tìm thấy tin nhắn" });
       }
-      res.json({ status: "ok", data: message });
+      participants.getOne(message.conversation_id, userId, (err, participant) => {
+        if (err || !participant) {
+          return res.status(404).json({ status: "error", message: "Không tìm thấy tin nhắn" });
+        }
+        res.json({ status: "ok", data: message.is_deleted ? { ...message, content: "" } : message });
+      });
     });
   },
 
@@ -172,7 +247,7 @@ const messagesController = {
     });
   },
 
-  // DELETE /api/messages/:messageId — xóa tin nhắn (soft delete)
+  // DELETE /api/messages/:messageId — thu hồi tin nhắn (soft delete, mọi người đều thấy "đã thu hồi")
   delete: (req, res) => {
     const { messageId } = req.params;
     const userId = req.user.user_id;
@@ -185,7 +260,10 @@ const messagesController = {
         return res.status(404).json({ status: "error", message: "Không tìm thấy tin nhắn" });
       }
       if (message.sender_id !== userId) {
-        return res.status(403).json({ status: "error", message: "Bạn chỉ có thể xóa tin nhắn của mình" });
+        return res.status(403).json({ status: "error", message: "Bạn chỉ có thể thu hồi tin nhắn của mình" });
+      }
+      if (message.type === "system") {
+        return res.status(400).json({ status: "error", message: "Không thể thu hồi tin nhắn hệ thống" });
       }
 
       messages.softDelete(messageId, (err, success) => {
@@ -195,7 +273,11 @@ const messagesController = {
         if (!success) {
           return res.status(404).json({ status: "error", message: "Không tìm thấy tin nhắn" });
         }
-        res.json({ status: "ok", message: "Xóa tin nhắn thành công" });
+        req.app.get("io")?.to(`conversation:${message.conversation_id}`).emit("message_deleted", {
+          conversation_id: message.conversation_id,
+          message_id: message.message_id,
+        });
+        res.json({ status: "ok", message: "Đã thu hồi tin nhắn" });
       });
     });
   },

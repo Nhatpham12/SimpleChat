@@ -1398,6 +1398,599 @@ mark {
   margin-bottom: 12px;
 }
 
+/* ---------- Header actions ---------- */
+.chat-header-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* ---------- Tin nhắn: ảnh, tệp, thu hồi, đã xem ---------- */
+.message-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.message-action {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+
+.message:hover .message-action,
+.message-action:focus-visible {
+  opacity: 1;
+}
+
+.message-action:hover {
+  background: rgba(18, 64, 60, 0.08);
+  color: var(--err);
+}
+
+/* Màn hình cảm ứng không có hover → luôn hiện mờ */
+@media (hover: none) {
+  .message-action {
+    opacity: 0.6;
+  }
+}
+
+.message-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+.message.other .message-link {
+  color: var(--ink-600);
+}
+
+.message-bubble.media {
+  padding: 0;
+  overflow: hidden;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.message-image {
+  display: block;
+  line-height: 0;
+}
+
+.message-image img,
+.message-video {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 360px;
+  min-width: 80px;
+  min-height: 60px;
+  border-radius: inherit;
+  background: var(--ink-50);
+  object-fit: cover;
+}
+
+.message-video {
+  width: 320px;
+  background: #000;
+}
+
+.message-bubble.file {
+  padding: 8px;
+}
+
+.message-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+  max-width: 320px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.message-file:hover {
+  text-decoration: none;
+}
+
+.file-ext {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: var(--lotus-50);
+  color: var(--lotus-600);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.message.own .file-ext {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.message-file-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.message-file-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-file-size {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.message-file-dl {
+  flex-shrink: 0;
+  display: inline-flex;
+  opacity: 0.7;
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message.own .message-meta {
+  justify-content: flex-end;
+}
+
+.message-receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 3px 6px 0 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.message-receipt.seen {
+  color: var(--ink-600);
+  font-weight: 500;
+}
+
+.receipt-avatars {
+  --avatar-ring: var(--mist);
+  display: inline-flex;
+}
+
+.receipt-avatars .user-avatar + .user-avatar {
+  margin-left: -4px;
+}
+
+.message-system {
+  align-self: center;
+  max-width: 80%;
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+/* ---------- Composer: đính kèm + tiến trình upload ---------- */
+.chat-input .composer-attach {
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  color: var(--ink-700);
+}
+
+.chat-input .composer-attach:hover:not(:disabled) {
+  background: var(--ink-100);
+}
+
+.chat-input .composer-attach:disabled {
+  background: transparent;
+  color: var(--text-3);
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  background: var(--paper);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.upload-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-bar {
+  flex: 1;
+  min-width: 60px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ink-50);
+  overflow: hidden;
+}
+
+.upload-bar span {
+  display: block;
+  height: 100%;
+  background: var(--ink-600);
+  transition: width 0.2s;
+}
+
+.upload-pct {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Sidebar thông tin (phải) ---------- */
+.chat-info {
+  --avatar-ring: var(--paper);
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  min-width: 340px;
+  background: var(--paper);
+  border-left: 1px solid var(--line);
+}
+
+.chat-info-backdrop {
+  display: none;
+}
+
+.chat-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 12px 20px;
+  border-bottom: 1px solid var(--line);
+  min-height: 67px;
+}
+
+.chat-info-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.chat-info-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 16px 24px;
+}
+
+.chat-info-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.chat-info-hero .user-avatar {
+  margin-bottom: 6px;
+}
+
+.chat-info-hero h4 {
+  max-width: 100%;
+  font-size: 17px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.chat-info-hero span {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.chat-info-search {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.chat-info-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  display: inline-flex;
+  color: var(--text-3);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.chat-info-search input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px 0 38px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background: var(--mist);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.chat-info-search input:focus {
+  border-color: var(--ink-600);
+  background: var(--paper);
+}
+
+.chat-info-results {
+  margin: 0 -8px;
+}
+
+.chat-info-count {
+  padding: 0 8px 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.chat-info-section {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.chat-info-section summary {
+  padding: 2px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chat-info-members {
+  list-style: none;
+}
+
+.chat-info-members li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.chat-info-members .person-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.chat-info-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: var(--mist);
+}
+
+.chat-info-tab {
+  flex: 1;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.chat-info-tab:hover {
+  color: var(--ink-800);
+}
+
+.chat-info-tab.active {
+  background: var(--paper);
+  color: var(--ink-800);
+  box-shadow: 0 1px 2px rgba(14, 51, 48, 0.12);
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.media-thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--ink-50);
+}
+
+.media-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s;
+}
+
+.media-thumb:hover img {
+  transform: scale(1.05);
+}
+
+.media-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.shared-list {
+  list-style: none;
+  margin: 0 -8px;
+}
+
+.shared-list li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 10px;
+}
+
+.shared-list li:hover {
+  background: var(--mist);
+}
+
+.shared-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  color: inherit;
+}
+
+.shared-item:hover {
+  text-decoration: none;
+}
+
+.shared-list .icon-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin-right: 4px;
+}
+
+.shared-list .file-ext {
+  width: 38px;
+  height: 38px;
+}
+
+.link-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--ink-100);
+  color: var(--ink-700);
+  font-weight: 700;
+}
+
+.shared-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.shared-title,
+.shared-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.shared-sub {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.chat-info-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.chat-info-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 8px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  color: var(--text);
+  transition: background-color 0.15s;
+}
+
+.chat-info-action.danger {
+  color: var(--err);
+}
+
+.chat-info-action:hover {
+  background: var(--err-50);
+}
+
+/* Màn hình vừa: sidebar thông tin đè lên khung chat */
+@media (max-width: 1199px) {
+  .chat-info {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    box-shadow: var(--shadow-pop);
+    animation: info-in 0.18s ease-out;
+  }
+
+  .chat-info-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: rgba(14, 51, 48, 0.25);
+  }
+}
+
+@media (max-width: 768px) {
+  .chat-info {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .upload-progress {
+    margin: 0 12px;
+  }
+}
+
+@keyframes info-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+
 /* =========================================================================
    Trang phụ: Danh bạ, Hồ sơ
    ========================================================================= */
@@ -1597,6 +2190,76 @@ mark {
   color: var(--ink-800);
   font-size: 12px;
   font-weight: 600;
+}
+
+.avatar-picker {
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.avatar-picker-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--mist);
+  border-radius: 50%;
+  background: var(--ink-800);
+  color: #fff;
+  transition: background-color 0.15s;
+}
+
+.avatar-picker:hover .avatar-picker-badge {
+  background: var(--ink-600);
+}
+
+.avatar-upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.avatar-upload-info {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.avatar-upload-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar-upload-hint {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.avatar-upload-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.avatar-url-option {
+  margin-top: 14px;
+}
+
+.avatar-url-option summary {
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
 }
 
 .inline-form {

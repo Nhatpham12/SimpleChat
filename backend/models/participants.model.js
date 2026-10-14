@@ -2,9 +2,11 @@ const db = require("../common/connect");
 const participants = (participants) => {};
 
 participants.getByConversationId = (conversation_id, callback) => {
-  const sqlString = `SELECT participant_id, user_id, role, joined_at 
-    FROM Participants 
-    WHERE conversation_id = ?`;
+  const sqlString = `SELECT p.participant_id, p.user_id, p.role, p.joined_at, u.username, u.avatar_url
+    FROM Participants p
+    INNER JOIN Users u ON u.user_id = p.user_id
+    WHERE p.conversation_id = ?
+    ORDER BY p.role = 'admin' DESC, p.joined_at ASC`;
   db.query(sqlString, [conversation_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result);
@@ -12,8 +14,8 @@ participants.getByConversationId = (conversation_id, callback) => {
 };
 
 participants.getByUserId = (user_id, callback) => {
-  const sqlString = `SELECT participant_id, conversation_id, role, joined_at 
-    FROM Participants 
+  const sqlString = `SELECT participant_id, conversation_id, role, joined_at
+    FROM Participants
     WHERE user_id = ?`;
   db.query(sqlString, [user_id], (err, result) => {
     if (err) return callback(err, null);
@@ -22,8 +24,8 @@ participants.getByUserId = (user_id, callback) => {
 };
 
 participants.getOne = (conversation_id, user_id, callback) => {
-  const sqlString = `SELECT participant_id, role, joined_at 
-    FROM Participants 
+  const sqlString = `SELECT participant_id, role, joined_at, cleared_before_id
+    FROM Participants
     WHERE conversation_id = ? AND user_id = ?`;
   db.query(sqlString, [conversation_id, user_id], (err, result) => {
     if (err) return callback(err, null);
@@ -32,7 +34,7 @@ participants.getOne = (conversation_id, user_id, callback) => {
 };
 
 participants.insert = (data, callback) => {
-  const sqlString = `INSERT INTO Participants (conversation_id, user_id, role) 
+  const sqlString = `INSERT INTO Participants (conversation_id, user_id, role)
     VALUES (?, ?, ?)`;
   const values = [
     data.conversation_id,
@@ -46,8 +48,8 @@ participants.insert = (data, callback) => {
 };
 
 participants.updateRole = (conversation_id, user_id, role, callback) => {
-  const sqlString = `UPDATE Participants 
-    SET role = ? 
+  const sqlString = `UPDATE Participants
+    SET role = ?
     WHERE conversation_id = ? AND user_id = ?`;
   db.query(sqlString, [role, conversation_id, user_id], (err, result) => {
     if (err) return callback(err, null);
@@ -56,9 +58,20 @@ participants.updateRole = (conversation_id, user_id, role, callback) => {
 };
 
 participants.delete = (conversation_id, user_id, callback) => {
-  const sqlString = `DELETE FROM Participants 
+  const sqlString = `DELETE FROM Participants
     WHERE conversation_id = ? AND user_id = ?`;
   db.query(sqlString, [conversation_id, user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+// Ẩn toàn bộ tin hiện có với user này (xóa lịch sử phía mình)
+participants.clearHistory = (conversation_id, user_id, callback) => {
+  const sqlString = `UPDATE Participants
+    SET cleared_before_id = COALESCE((SELECT MAX(message_id) FROM Messages WHERE conversation_id = ?), 0)
+    WHERE conversation_id = ? AND user_id = ?`;
+  db.query(sqlString, [conversation_id, conversation_id, user_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);
   });
