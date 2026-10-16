@@ -14,7 +14,7 @@ const SALT_ROUND = 10;
 const getUserByEmail = promisify(users.getByEmail);
 const getUserByUsername = promisify(users.getByUsername);
 
-const generateToken = (user) => {
+const generateToken = (user, remember = false) => {
   return jwt.sign(
     {
       user_id: user.user_id,
@@ -23,7 +23,7 @@ const generateToken = (user) => {
     },
     config.jwt.secret,
     {
-      expiresIn: config.jwt.expiresIn,
+      expiresIn: remember ? config.jwt.rememberExpiresIn : config.jwt.expiresIn,
     },
   );
 };
@@ -59,7 +59,7 @@ const tooSoon = (res, retryAfter) =>
     data: { retryAfter },
   });
 
-const loginResponse = async (res, user, message) => {
+const loginResponse = async (res, user, message, remember = false) => {
   // Chặn cả đường đăng nhập qua xác nhận email
   if (user.is_locked) {
     return res.status(403).json({ status: "error", code: "ACCOUNT_LOCKED", message: LOCKED_MESSAGE });
@@ -70,7 +70,7 @@ const loginResponse = async (res, user, message) => {
     message,
     data: {
       user: publicUser({ ...user, status: "online" }),
-      token: generateToken(user),
+      token: generateToken(user, remember),
     },
   });
 };
@@ -150,7 +150,7 @@ const authController = {
       });
     }
 
-    await loginResponse(res, user, "Đăng nhập thành công");
+    await loginResponse(res, user, "Đăng nhập thành công", req.body.remember === true);
   },
 
   // GET api/auth/me
@@ -297,7 +297,7 @@ const authController = {
     if (error) return res.status(400).json({ status: "error", message: error });
 
     await promisify(users.setVerified)(user.user_id);
-    await loginResponse(res, { ...user, is_verified: 1 }, "Xác nhận email thành công");
+    await loginResponse(res, { ...user, is_verified: 1 }, "Xác nhận email thành công", true);
   },
 
   // POST /api/auth/resend-verification — gửi lại OTP xác nhận email

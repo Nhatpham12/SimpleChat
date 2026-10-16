@@ -279,6 +279,24 @@ mark {
   font-size: 13px;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ink-800);
+  cursor: pointer;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

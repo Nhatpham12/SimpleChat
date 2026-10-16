@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback } from "react";
 import { io } from "socket.io-client";
 import { useAuth } from "./AuthContext";
+import { getToken } from "../utils/session";
 
 const SocketContext = createContext(null);
 
@@ -19,7 +20,7 @@ export const SocketProvider = ({ children }) => {
   useEffect(() => {
     if (!user) return;
 
-    const token = sessionStorage.getItem("token");
+    const token = getToken();
     if (!token) return;
 
     // undefined → same origin (Vite proxy in dev, nginx in prod)

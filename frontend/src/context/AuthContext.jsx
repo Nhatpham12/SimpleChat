@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { authAPI } from "../api/auth";
+import { getToken, saveSession as storeSession, updateStoredUser, clearSession } from "../utils/session";
 
 const AuthContext = createContext(null);
 
@@ -14,7 +15,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const checkAuth = useCallback(async () => {
-    const token = sessionStorage.getItem("token");
+    const token = getToken();
     if (!token) {
       setLoading(false);
       return;
@@ -23,8 +24,7 @@ export const AuthProvider = ({ children }) => {
       const res = await authAPI.getMe();
       setUser(res.data.data.user);
     } catch {
-      sessionStorage.removeItem("token");
-      sessionStorage.removeItem("user");
+      clearSession();
       setUser(null);
     } finally {
       setLoading(false);
@@ -35,16 +35,24 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, [checkAuth]);
 
-  const saveSession = ({ user: userData, token }) => {
-    sessionStorage.setItem("token", token);
-    sessionStorage.setItem("user", JSON.stringify(userData));
-    setUser(userData);
-    return userData;
+  // Đăng xuất ở một tab → các tab khác (dùng chung localStorage) cũng đăng xuất
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === "token" && !e.newValue && !getToken()) setUser(null);
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  const saveSession = (data, remember) => {
+    storeSession(data, remember);
+    setUser(data.user);
+    return data.user;
   };
 
-  const login = async (username, password) => {
-    const res = await authAPI.login({ username, password });
-    return saveSession(res.data.data);
+  const login = async (username, password, remember = true) => {
+    const res = await authAPI.login({ username, password, remember });
+    return saveSession(res.data.data, remember);
   };
 
   // Đăng ký chỉ tạo tài khoản, phải xác nhận OTP email mới đăng nhập được
@@ -53,9 +61,10 @@ export const AuthProvider = ({ children }) => {
     return res.data.data.email;
   };
 
+  // Server cấp token dài hạn cho lần đăng nhập ngay sau khi xác nhận email
   const verifyEmail = async (email, otp) => {
     const res = await authAPI.verifyEmail({ email, otp });
-    return saveSession(res.data.data);
+    return saveSession(res.data.data, true);
   };
 
   const logout = useCallback(async () => {
@@ -64,14 +73,13 @@ export const AuthProvider = ({ children }) => {
     } catch {
       // ignore
     }
-    sessionStorage.removeItem("token");
-    sessionStorage.removeItem("user");
+    clearSession();
     setUser(null);
   }, []);
 
   const updateUser = (updatedUser) => {
     setUser(updatedUser);
-    sessionStorage.setItem("user", JSON.stringify(updatedUser));
+    updateStoredUser(updatedUser);
   };
 
   return (

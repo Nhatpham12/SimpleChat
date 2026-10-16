@@ -7,6 +7,7 @@ import AuthLayout from "../components/AuthLayout";
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const toast = useToast();
@@ -38,7 +39,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await login(username, password);
+      await login(username, password, remember);
       navigate("/chat");
     } catch (err) {
       const data = err.response?.data;
@@ -85,6 +86,11 @@ export default function LoginPage() {
             required
           />
         </div>
+
+        <label className="checkbox-row">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+          Ghi nhớ đăng nhập
+        </label>
 
         <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
           {loading ? "Đang đăng nhập..." : "Đăng nhập"}

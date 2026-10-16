@@ -2,9 +2,9 @@ const bcrypt = require("bcrypt");
 const db = require("../common/connect");
 
 const adminSeeder = async () => {
-  const username = process.env.ADMIN_USERNAME || "admin";
-  const password = process.env.ADMIN_PASSWORD || "08012005";
-  const email = process.env.ADMIN_EMAIL || "nhat88672@gmail.com";
+  const username = process.env.ADMIN_USERNAME;
+  const password = process.env.ADMIN_PASSWORD;
+  const email = process.env.ADMIN_EMAIL;
 
   const checkSql = "SELECT * FROM Users WHERE role = 'admin'";
   return new Promise((resolve, reject) => {
