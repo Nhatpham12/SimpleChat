@@ -62,7 +62,11 @@ const tooSoon = (res, retryAfter) =>
 const loginResponse = async (res, user, message, remember = false) => {
   // Chặn cả đường đăng nhập qua xác nhận email
   if (user.is_locked) {
-    return res.status(403).json({ status: "error", code: "ACCOUNT_LOCKED", message: LOCKED_MESSAGE });
+    return res.status(403).json({
+      status: "error",
+      code: "ACCOUNT_LOCKED",
+      message: LOCKED_MESSAGE,
+    });
   }
   await promisify(users.updateStatus)(user.user_id, "online");
   res.json({
@@ -120,7 +124,8 @@ const authController = {
       ? await getUserByEmail(normalizeEmail(identifier))
       : await getUserByUsername(identifier);
 
-    const isMatch = user && (await bcrypt.compare(password, user.password_hash));
+    const isMatch =
+      user && (await bcrypt.compare(password, user.password_hash));
     if (!isMatch) {
       return res.status(401).json({
         status: "error",
@@ -270,7 +275,6 @@ const authController = {
     });
   },
 
-
   // POST /api/auth/verify-email — xác nhận email bằng OTP, thành công thì đăng nhập luôn
   verifyEmail: async (req, res) => {
     const email = normalizeEmail(req.body.email);
@@ -288,23 +292,31 @@ const authController = {
         .json({ status: "error", message: "Mã xác nhận không hợp lệ" });
     }
     if (user.is_verified) {
-      return res
-        .status(400)
-        .json({ status: "error", message: "Email đã được xác nhận, vui lòng đăng nhập" });
+      return res.status(400).json({
+        status: "error",
+        message: "Email đã được xác nhận, vui lòng đăng nhập",
+      });
     }
 
     const { error } = await checkOtp(emailVerifications, user.user_id, otp);
     if (error) return res.status(400).json({ status: "error", message: error });
 
     await promisify(users.setVerified)(user.user_id);
-    await loginResponse(res, { ...user, is_verified: 1 }, "Xác nhận email thành công", true);
+    await loginResponse(
+      res,
+      { ...user, is_verified: 1 },
+      "Xác nhận email thành công",
+      true,
+    );
   },
 
   // POST /api/auth/resend-verification — gửi lại OTP xác nhận email
   resendVerification: async (req, res) => {
     const email = normalizeEmail(req.body.email);
     if (!email) {
-      return res.status(400).json({ status: "error", message: "Email là bắt buộc" });
+      return res
+        .status(400)
+        .json({ status: "error", message: "Email là bắt buộc" });
     }
 
     const user = await getUserByEmail(email);
@@ -323,7 +335,9 @@ const authController = {
   forgotPassword: async (req, res) => {
     const email = normalizeEmail(req.body.email);
     if (!email) {
-      return res.status(400).json({ status: "error", message: "Email là bắt buộc" });
+      return res
+        .status(400)
+        .json({ status: "error", message: "Email là bắt buộc" });
     }
 
     const user = await getUserByEmail(email);
@@ -351,9 +365,10 @@ const authController = {
       });
     }
     if (typeof newPassword !== "string" || newPassword.length < 8) {
-      return res
-        .status(400)
-        .json({ status: "error", message: "Mật khẩu mới phải có ít nhất 8 ký tự" });
+      return res.status(400).json({
+        status: "error",
+        message: "Mật khẩu mới phải có ít nhất 8 ký tự",
+      });
     }
 
     const user = await getUserByEmail(email);
