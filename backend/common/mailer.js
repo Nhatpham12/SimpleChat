@@ -26,6 +26,11 @@ const PURPOSES = {
     subject: "Mã đặt lại mật khẩu SimpleChat",
     intro: "Bạn vừa yêu cầu đặt lại mật khẩu SimpleChat. Mã xác nhận của bạn là:",
   },
+  login: {
+    subject: "Mã đăng nhập SimpleChat",
+    intro:
+      "Có người vừa đăng nhập đúng mật khẩu tài khoản SimpleChat của bạn. Nếu không phải bạn, hãy đổi mật khẩu ngay. Mã đăng nhập là:",
+  },
 };
 
 const sendOtpMail = async (to, otp, purpose, ttlMinutes) => {

@@ -14,6 +14,9 @@ const {
 
 router.post("/register", registerLimiter, validateRegister, authController.register);
 router.post("/login", loginIpLimiter, loginAccountLimiter, validateLogin, authController.login);
+router.post("/login/mfa", otpVerifyLimiter, authController.verifyLoginMfa);
+router.post("/login/mfa/resend", otpSendLimiter, authController.resendLoginMfa);
+router.put("/mfa", verifyToken, changePasswordLimiter, authController.setMfa);
 router.get("/me", verifyToken, authController.getMe);
 router.post("/logout", verifyToken, authController.logout);
 router.put("/change-password", verifyToken, changePasswordLimiter, validateChangePassword, authController.changePassword);

@@ -22,6 +22,8 @@ export default function ProfilePage() {
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [showMfaForm, setShowMfaForm] = useState(false);
+  const [mfaPassword, setMfaPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -113,6 +115,27 @@ export default function ProfilePage() {
       setNewPassword("");
     } catch (err) {
       toast.error(err.response?.data?.message || "Chưa đổi được mật khẩu");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const closeMfaForm = () => {
+    setShowMfaForm(false);
+    setMfaPassword("");
+  };
+
+  // Bật/tắt đăng nhập 2 bước, server yêu cầu nhập lại mật khẩu
+  const handleToggleMfa = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await authAPI.setMfa({ enabled: !user?.mfa_enabled, password: mfaPassword });
+      updateUser(res.data.data.user);
+      toast.success(res.data.message);
+      closeMfaForm();
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Chưa đổi được cài đặt đăng nhập 2 bước");
     } finally {
       setLoading(false);
     }
@@ -273,6 +296,41 @@ export default function ProfilePage() {
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={loading}>
                   {loading ? "Đang lưu..." : "Đổi mật khẩu"}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h3 className="panel-title">Đăng nhập 2 bước</h3>
+            {!showMfaForm && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowMfaForm(true)}>
+                {user?.mfa_enabled ? "Tắt" : "Bật"}
+              </button>
+            )}
+          </div>
+
+          <dl className="info-list">
+            <div className="info-row">
+              <dt>Trạng thái</dt>
+              <dd>{user?.mfa_enabled ? "Đang bật: mỗi lần đăng nhập cần thêm mã gửi qua email" : "Đang tắt"}</dd>
+            </div>
+          </dl>
+
+          {showMfaForm && (
+            <form onSubmit={handleToggleMfa} className="stack-form">
+              <div className="form-group">
+                <label htmlFor="pf-mfa-password">Nhập mật khẩu hiện tại để xác nhận</label>
+                <input id="pf-mfa-password" type="password" autoComplete="current-password" value={mfaPassword} onChange={(e) => setMfaPassword(e.target.value)} required />
+              </div>
+              <div className="form-actions">
+                <button type="button" onClick={closeMfaForm} className="btn btn-ghost">
+                  Hủy
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={loading}>
+                  {loading ? "Đang lưu..." : user?.mfa_enabled ? "Tắt đăng nhập 2 bước" : "Bật đăng nhập 2 bước"}
                 </button>
               </div>
             </form>

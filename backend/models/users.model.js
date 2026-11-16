@@ -11,7 +11,7 @@ users.getAll = (callBack) => {
 };
 
 users.getById = (user_id, callBack) => {
-  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, created_at, updated_at 
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, mfa_enabled, created_at, updated_at
     FROM Users
     WHERE user_id = ?`;
   db.query(sqlString, [user_id], (err, result) => {
@@ -21,7 +21,7 @@ users.getById = (user_id, callBack) => {
 };
 
 users.getByUsername = (username, callBack) => {
-  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, created_at, updated_at 
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, mfa_enabled, created_at, updated_at
     FROM Users
     WHERE username = ?`;
   db.query(sqlString, [username], (err, result) => {
@@ -31,7 +31,7 @@ users.getByUsername = (username, callBack) => {
 };
 
 users.getByEmail = (email, callBack) => {
-  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, created_at, updated_at 
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, mfa_enabled, created_at, updated_at
     FROM Users
     WHERE email = ?`;
   db.query(sqlString, [email], (err, result) => {
@@ -119,9 +119,50 @@ users.setVerified = (user_id, callback) => {
   });
 };
 
+// Đặt lại mật khẩu (qua OTP email) cũng gỡ khóa tạm do nhập sai nhiều lần
 users.updatePassword = (user_id, password_hash, callback) => {
-  const sqlString = `UPDATE Users SET password_hash = ? WHERE user_id = ?`;
+  const sqlString = `UPDATE Users SET password_hash = ?, failed_logins = 0, lockout_until = NULL WHERE user_id = ?`;
   db.query(sqlString, [password_hash, user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+// Số giây còn bị khóa tạm do nhập sai mật khẩu (0 = không bị khóa).
+// So sánh bằng NOW() của MySQL để không lệch múi giờ giữa app và DB.
+users.getLockoutSeconds = (user_id, callback) => {
+  const sqlString = `SELECT GREATEST(COALESCE(TIMESTAMPDIFF(SECOND, NOW(), lockout_until), 0), 0) AS seconds
+    FROM Users WHERE user_id = ?`;
+  db.query(sqlString, [user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, Number(result[0]?.seconds || 0));
+  });
+};
+
+// Ghi nhận 1 lần sai mật khẩu; đủ maxFailures lần liên tiếp thì khóa tạm lockMinutes phút và đếm lại từ 0.
+// Trong SET của MySQL, vế phải đọc giá trị cũ của cột chưa được gán trước đó → lockout_until đặt trước.
+users.recordFailedLogin = (user_id, maxFailures, lockMinutes, callback) => {
+  const sqlString = `UPDATE Users
+    SET lockout_until = IF(failed_logins + 1 >= ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), lockout_until),
+        failed_logins = IF(failed_logins + 1 >= ?, 0, failed_logins + 1)
+    WHERE user_id = ?`;
+  db.query(sqlString, [maxFailures, lockMinutes, maxFailures, user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+users.resetFailedLogins = (user_id, callback) => {
+  const sqlString = `UPDATE Users SET failed_logins = 0, lockout_until = NULL WHERE user_id = ?`;
+  db.query(sqlString, [user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+users.setMfaEnabled = (user_id, enabled, callback) => {
+  const sqlString = `UPDATE Users SET mfa_enabled = ? WHERE user_id = ?`;
+  db.query(sqlString, [Boolean(enabled), user_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);
   });

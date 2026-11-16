@@ -87,6 +87,21 @@ a:hover {
   text-decoration: underline;
 }
 
+/* Nút hành động trông như link (vd. "Quay lại đăng nhập" ở bước nhập mã) */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ink-600);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
 :focus-visible {
   outline: 2px solid var(--lotus);
   outline-offset: 2px;

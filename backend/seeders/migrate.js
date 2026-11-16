@@ -17,6 +17,23 @@ const COLUMNS = [
     definition: "BOOLEAN NOT NULL DEFAULT FALSE AFTER is_verified",
   },
   {
+    // Đăng nhập 2 bước (mã OTP qua email), người dùng tự bật trong trang Hồ sơ
+    table: "Users",
+    column: "mfa_enabled",
+    definition: "BOOLEAN NOT NULL DEFAULT FALSE AFTER is_locked",
+  },
+  {
+    // Chống dò mật khẩu: đếm số lần sai liên tiếp, quá ngưỡng thì khóa tạm đến lockout_until
+    table: "Users",
+    column: "failed_logins",
+    definition: "INT NOT NULL DEFAULT 0 AFTER mfa_enabled",
+  },
+  {
+    table: "Users",
+    column: "lockout_until",
+    definition: "DATETIME DEFAULT NULL AFTER failed_logins",
+  },
+  {
     table: "EmailVerifications",
     column: "attempts",
     definition: "INT NOT NULL DEFAULT 0 AFTER is_used",
@@ -43,8 +60,25 @@ const COLUMNS = [
 // Cột VARCHAR cần nới rộng (MIME của .docx/.xlsx dài hơn 50 ký tự)
 const WIDEN = [{ table: "Attachments", column: "file_type", length: 255 }];
 
+// Bảng thêm sau khi DB đã chạy (cùng định nghĩa trong simplechat.sql)
+const TABLES = [
+  `CREATE TABLE IF NOT EXISTS LoginOtps (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    user_id    INT NOT NULL,
+    token      VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    is_used    BOOLEAN DEFAULT FALSE,
+    attempts   INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    INDEX idx_loginotps_user_id (user_id)
+  ) ENGINE=InnoDB`,
+];
+
 const migrate = async () => {
   const conn = db.promise();
+  for (const sql of TABLES) await conn.query(sql);
+
   for (const { table, column, definition, afterAdd } of COLUMNS) {
     const [rows] = await conn.query(
       `SELECT 1 FROM information_schema.COLUMNS

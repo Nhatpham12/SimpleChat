@@ -21,6 +21,9 @@ CREATE TABLE Users (
     status        ENUM('online','offline','away') DEFAULT 'offline',
     is_verified   BOOLEAN NOT NULL DEFAULT FALSE,
     is_locked     BOOLEAN NOT NULL DEFAULT FALSE,
+    mfa_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
+    failed_logins INT NOT NULL DEFAULT 0,
+    lockout_until DATETIME DEFAULT NULL,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -179,6 +182,21 @@ CREATE TABLE PasswordResets (
     attempts   INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
+-- Bảng 13: LoginOtps (mã đăng nhập 2 bước qua email)
+-- ---------------------------------------------------------------------
+CREATE TABLE LoginOtps (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    user_id    INT NOT NULL,
+    token      VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    is_used    BOOLEAN DEFAULT FALSE,
+    attempts   INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    INDEX idx_loginotps_user_id (user_id)
 ) ENGINE=InnoDB;
 
 -- =====================================================================

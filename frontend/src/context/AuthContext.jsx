@@ -50,8 +50,15 @@ export const AuthProvider = ({ children }) => {
     return data.user;
   };
 
+  // Tài khoản bật đăng nhập 2 bước: trả về { mfaToken, email } để trang đăng nhập hỏi mã
   const login = async (username, password, remember = true) => {
     const res = await authAPI.login({ username, password, remember });
+    if (res.data.code === "MFA_REQUIRED") return { mfa: res.data.data };
+    return { user: saveSession(res.data.data, remember) };
+  };
+
+  const verifyLoginMfa = async (mfaToken, otp, remember) => {
+    const res = await authAPI.verifyLoginMfa({ mfaToken, otp });
     return saveSession(res.data.data, remember);
   };
 
@@ -83,7 +90,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, verifyEmail, logout, updateUser, checkAuth }}>
+    <AuthContext.Provider value={{ user, loading, login, verifyLoginMfa, register, verifyEmail, logout, updateUser, checkAuth }}>
       {children}
     </AuthContext.Provider>
   );
