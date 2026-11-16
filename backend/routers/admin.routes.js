@@ -1,10 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const adminController = require("../controllers/admin.controller");
-const { requireRole } = require("../middlewares/auth.middleware");
+const { requireRole, requireMfa } = require("../middlewares/auth.middleware");
 
 // verifyToken đã chạy ở /api; role được đọc lại từ DB nên hạ quyền có hiệu lực ngay
-router.use(requireRole("admin"));
+router.use(requireRole("admin"), requireMfa);
 
 router.get("/stats", adminController.stats);
 router.get("/users", adminController.listUsers);

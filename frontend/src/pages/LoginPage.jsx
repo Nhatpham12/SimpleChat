@@ -3,20 +3,16 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import AuthLayout from "../components/AuthLayout";
-import useCountdown from "../hooks/useCountdown";
-import { authAPI } from "../api/auth";
-
-const RESEND_SECONDS = 60;
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
-  // Bước 2 khi tài khoản bật đăng nhập 2 bước: { mfaToken, email }
-  const [mfa, setMfa] = useState(null);
-  const [otp, setOtp] = useState("");
-  const [cooldown, setCooldown] = useCountdown(0);
+  // Bước 2 khi tài khoản bật đăng nhập 2 bước (token tạm chỉ giữ trong state)
+  const [mfaToken, setMfaToken] = useState(null);
+  const [code, setCode] = useState("");
+  const [useRecovery, setUseRecovery] = useState(false);
   const { login, verifyLoginMfa } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
@@ -48,10 +44,9 @@ export default function LoginPage() {
 
     try {
       const result = await login(username, password, remember);
-      if (result.mfa) {
-        setMfa(result.mfa);
-        setOtp("");
-        setCooldown(RESEND_SECONDS);
+      if (result.mfaToken) {
+        setMfaToken(result.mfaToken);
+        setCode("");
         return;
       }
       navigate("/chat");
@@ -70,73 +65,80 @@ export default function LoginPage() {
 
   // Hết phiên bước 2 / bị khóa tạm → quay lại nhập mật khẩu
   const backToPassword = () => {
-    setMfa(null);
-    setOtp("");
+    setMfaToken(null);
+    setCode("");
+    setUseRecovery(false);
   };
 
   const handleVerifyMfa = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await verifyLoginMfa(mfa.mfaToken, otp, remember);
+      await verifyLoginMfa(mfaToken, code, remember);
       navigate("/chat");
     } catch (err) {
       const data = err.response?.data;
-      toast.error(data?.message || "Mã đăng nhập không đúng hoặc đã hết hạn");
+      toast.error(data?.message || "Mã xác thực không đúng");
+      setCode("");
       if (data?.code === "MFA_EXPIRED" || data?.code === "LOGIN_LOCKED") backToPassword();
     } finally {
       setLoading(false);
     }
   };
 
-  const handleResendMfa = async () => {
-    try {
-      await authAPI.resendLoginMfa(mfa.mfaToken);
-      toast.success(`Đã gửi mã mới tới ${mfa.email}`);
-      setCooldown(RESEND_SECONDS);
-    } catch (err) {
-      const data = err.response?.data;
-      toast.error(data?.message || "Chưa gửi lại được mã");
-      if (data?.code === "MFA_EXPIRED" || data?.code === "LOGIN_LOCKED") return backToPassword();
-      setCooldown(data?.data?.retryAfter || 0);
-    }
+  const toggleRecovery = () => {
+    setUseRecovery(!useRecovery);
+    setCode("");
   };
 
-  if (mfa) {
+  if (mfaToken) {
+    const codeReady = useRecovery ? code.replace(/[^0-9a-f]/gi, "").length === 10 : code.length === 6;
     return (
       <AuthLayout
         title="Xác minh đăng nhập"
-        subtitle={
-          <>
-            Nhập mã 6 số vừa gửi tới <strong>{mfa.email}</strong>
-          </>
-        }
+        subtitle={useRecovery ? "Nhập một mã khôi phục bạn đã lưu khi bật đăng nhập 2 bước" : "Nhập mã 6 số trong ứng dụng xác thực (Google Authenticator, Authy…)"}
       >
         <form onSubmit={handleVerifyMfa} className="auth-form">
           <div className="form-group">
-            <label htmlFor="login-otp">Mã đăng nhập</label>
-            <input
-              id="login-otp"
-              className="otp-input"
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="000000"
-              required
-              minLength={6}
-              maxLength={6}
-              autoFocus
-            />
+            <label htmlFor="login-mfa-code">{useRecovery ? "Mã khôi phục" : "Mã xác thực"}</label>
+            {useRecovery ? (
+              <input
+                key="recovery"
+                id="login-mfa-code"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={code}
+                onChange={(e) => setCode(e.target.value.slice(0, 11))}
+                placeholder="abcde-12345"
+                required
+                autoFocus
+              />
+            ) : (
+              <input
+                key="totp"
+                id="login-mfa-code"
+                className="otp-input"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+                required
+                minLength={6}
+                maxLength={6}
+                autoFocus
+              />
+            )}
           </div>
 
-          <button type="submit" className="btn btn-primary btn-block" disabled={loading || otp.length !== 6}>
+          <button type="submit" className="btn btn-primary btn-block" disabled={loading || !codeReady}>
             {loading ? "Đang xác minh..." : "Xác minh"}
           </button>
 
-          <button type="button" className="btn btn-ghost btn-block" onClick={handleResendMfa} disabled={cooldown > 0}>
-            {cooldown > 0 ? `Gửi lại mã sau ${cooldown}s` : "Gửi lại mã"}
+          <button type="button" className="btn btn-ghost btn-block" onClick={toggleRecovery}>
+            {useRecovery ? "Dùng mã từ ứng dụng xác thực" : "Mất điện thoại? Dùng mã khôi phục"}
           </button>
         </form>
 

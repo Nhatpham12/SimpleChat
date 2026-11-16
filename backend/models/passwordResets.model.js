@@ -71,4 +71,16 @@ passwordResets.invalidateByUserId = (user_id, callback) => {
   });
 };
 
+// Số mã đã gửi trong 24 giờ qua và số giây đến khi mã cũ nhất trong khoảng đó hết tính
+passwordResets.countLastDay = (user_id, callback) => {
+  const sqlString = `SELECT COUNT(*) AS total,
+      GREATEST(TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(MIN(created_at), INTERVAL 1 DAY)), 1) AS retryAfter
+    FROM PasswordResets
+    WHERE user_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 DAY)`;
+  db.query(sqlString, [user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, { total: Number(result[0].total), retryAfter: Number(result[0].retryAfter || 0) });
+  });
+};
+
 module.exports = passwordResets;

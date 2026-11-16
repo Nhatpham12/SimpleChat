@@ -14,9 +14,11 @@ const {
 
 router.post("/register", registerLimiter, validateRegister, authController.register);
 router.post("/login", loginIpLimiter, loginAccountLimiter, validateLogin, authController.login);
-router.post("/login/mfa", otpVerifyLimiter, authController.verifyLoginMfa);
-router.post("/login/mfa/resend", otpSendLimiter, authController.resendLoginMfa);
-router.put("/mfa", verifyToken, changePasswordLimiter, authController.setMfa);
+// Đăng nhập 2 bước (TOTP). /verify là bước 2 khi đăng nhập nên không cần access token.
+router.post("/mfa/verify", otpVerifyLimiter, authController.verifyLoginMfa);
+router.post("/mfa/setup", verifyToken, authController.mfaSetup);
+router.post("/mfa/enable", verifyToken, changePasswordLimiter, authController.mfaEnable);
+router.post("/mfa/disable", verifyToken, changePasswordLimiter, authController.mfaDisable);
 router.get("/me", verifyToken, authController.getMe);
 router.post("/logout", verifyToken, authController.logout);
 router.put("/change-password", verifyToken, changePasswordLimiter, validateChangePassword, authController.changePassword);

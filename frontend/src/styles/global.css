@@ -2340,6 +2340,60 @@ mark {
   gap: 8px;
 }
 
+/* Đăng nhập 2 bước (components/MfaSettings.jsx) */
+.mfa-note {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--lotus-50);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.mfa-steps {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.mfa-qr {
+  align-self: center;
+  width: 200px;
+  height: 200px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+}
+
+.mfa-secret {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.mfa-secret code,
+.recovery-codes code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  color: var(--text);
+}
+
+.recovery-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ink-50);
+  font-size: 15px;
+  text-align: center;
+}
+
 /* =========================================================================
    Trang quản trị
    ========================================================================= */

@@ -128,10 +128,18 @@ users.updatePassword = (user_id, password_hash, callback) => {
   });
 };
 
-// Số giây còn bị khóa tạm do nhập sai mật khẩu (0 = không bị khóa).
-// So sánh bằng NOW() của MySQL để không lệch múi giờ giữa app và DB.
-users.getLockoutSeconds = (user_id, callback) => {
-  const sqlString = `SELECT GREATEST(COALESCE(TIMESTAMPDIFF(SECOND, NOW(), lockout_until), 0), 0) AS seconds
+// Hai bộ đếm khóa tạm độc lập (đếm theo tài khoản, không theo IP → chặn dò phân tán):
+//   login: sai mật khẩu        mfa: sai mã 2 bước
+// Tên cột lấy từ danh sách cố định này, không bao giờ từ input.
+const LOCK_COLUMNS = {
+  login: { count: "failed_logins", until: "lockout_until" },
+  mfa: { count: "mfa_failed", until: "mfa_locked_until" },
+};
+
+// Số giây còn bị khóa tạm (0 = không bị khóa). So sánh bằng NOW() của MySQL để không lệch múi giờ.
+users.getLockoutSeconds = (user_id, kind, callback) => {
+  const { until } = LOCK_COLUMNS[kind];
+  const sqlString = `SELECT GREATEST(COALESCE(TIMESTAMPDIFF(SECOND, NOW(), ${until}), 0), 0) AS seconds
     FROM Users WHERE user_id = ?`;
   db.query(sqlString, [user_id], (err, result) => {
     if (err) return callback(err, null);
@@ -139,12 +147,13 @@ users.getLockoutSeconds = (user_id, callback) => {
   });
 };
 
-// Ghi nhận 1 lần sai mật khẩu; đủ maxFailures lần liên tiếp thì khóa tạm lockMinutes phút và đếm lại từ 0.
-// Trong SET của MySQL, vế phải đọc giá trị cũ của cột chưa được gán trước đó → lockout_until đặt trước.
-users.recordFailedLogin = (user_id, maxFailures, lockMinutes, callback) => {
+// Ghi nhận 1 lần sai; đủ maxFailures lần liên tiếp thì khóa tạm lockMinutes phút và đếm lại từ 0.
+// Trong SET của MySQL, vế phải đọc giá trị cũ của cột chưa được gán trước đó → cột "until" đặt trước.
+users.recordFailure = (user_id, kind, maxFailures, lockMinutes, callback) => {
+  const { count, until } = LOCK_COLUMNS[kind];
   const sqlString = `UPDATE Users
-    SET lockout_until = IF(failed_logins + 1 >= ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), lockout_until),
-        failed_logins = IF(failed_logins + 1 >= ?, 0, failed_logins + 1)
+    SET ${until} = IF(${count} + 1 >= ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), ${until}),
+        ${count} = IF(${count} + 1 >= ?, 0, ${count} + 1)
     WHERE user_id = ?`;
   db.query(sqlString, [maxFailures, lockMinutes, maxFailures, user_id], (err, result) => {
     if (err) return callback(err, null);
@@ -152,17 +161,57 @@ users.recordFailedLogin = (user_id, maxFailures, lockMinutes, callback) => {
   });
 };
 
-users.resetFailedLogins = (user_id, callback) => {
-  const sqlString = `UPDATE Users SET failed_logins = 0, lockout_until = NULL WHERE user_id = ?`;
+users.resetFailures = (user_id, kind, callback) => {
+  const { count, until } = LOCK_COLUMNS[kind];
+  const sqlString = `UPDATE Users SET ${count} = 0, ${until} = NULL WHERE user_id = ?`;
   db.query(sqlString, [user_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);
   });
 };
 
-users.setMfaEnabled = (user_id, enabled, callback) => {
-  const sqlString = `UPDATE Users SET mfa_enabled = ? WHERE user_id = ?`;
-  db.query(sqlString, [Boolean(enabled), user_id], (err, result) => {
+// Secret TOTP (đã mã hóa) + bước thời gian của mã dùng gần nhất. Không bao giờ trả về client.
+users.getMfaState = (user_id, callback) => {
+  const sqlString = `SELECT mfa_enabled, mfa_secret, mfa_last_step FROM Users WHERE user_id = ?`;
+  db.query(sqlString, [user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result[0] || null);
+  });
+};
+
+// Lưu secret mới khi bắt đầu cài đặt (chỉ khi MFA đang tắt)
+users.setMfaSecret = (user_id, encryptedSecret, callback) => {
+  const sqlString = `UPDATE Users SET mfa_secret = ?, mfa_last_step = NULL WHERE user_id = ? AND mfa_enabled = FALSE`;
+  db.query(sqlString, [encryptedSecret, user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+users.enableMfa = (user_id, step, callback) => {
+  const sqlString = `UPDATE Users SET mfa_enabled = TRUE, mfa_last_step = ? WHERE user_id = ? AND mfa_enabled = FALSE`;
+  db.query(sqlString, [step, user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+users.disableMfa = (user_id, callback) => {
+  const sqlString = `UPDATE Users
+    SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_last_step = NULL, mfa_failed = 0, mfa_locked_until = NULL
+    WHERE user_id = ?`;
+  db.query(sqlString, [user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+// Ghi nhận mã TOTP đã dùng. Điều kiện "< step" làm việc này nguyên tử:
+// 2 request song song cùng một mã thì chỉ 1 request được (chống replay).
+users.claimMfaStep = (user_id, step, callback) => {
+  const sqlString = `UPDATE Users SET mfa_last_step = ?
+    WHERE user_id = ? AND (mfa_last_step IS NULL OR mfa_last_step < ?)`;
+  db.query(sqlString, [step, user_id, step], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);
   });

@@ -23,6 +23,8 @@
     "multer-storage-cloudinary": "^4.0.0",
     "mysql2": "^3.23.0",
     "nodemailer": "^9.0.3",
+    "otplib": "^12.0.1",
+    "qrcode": "^1.5.4",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {

@@ -8,7 +8,7 @@ const LOCKED_MESSAGE = "Tài khoản của bạn đã bị khóa. Liên hệ qu�
 // thể tin role trong token (admin đổi quyền hoặc khóa phải có hiệu lực ngay).
 const loadAccount = (userId, callback) => {
   db.query(
-    "SELECT user_id, username, role, is_locked FROM Users WHERE user_id = ?",
+    "SELECT user_id, username, role, is_locked, mfa_enabled FROM Users WHERE user_id = ?",
     [userId],
     (err, rows) => callback(err, rows?.[0] || null),
   );
@@ -38,7 +38,12 @@ const verifyToken = (req, res, next) => {
     if (account.is_locked) {
       return res.status(401).json({ status: "error", code: "ACCOUNT_LOCKED", message: LOCKED_MESSAGE });
     }
-    req.user = { ...decoded, username: account.username, role: account.role };
+    req.user = {
+      ...decoded,
+      username: account.username,
+      role: account.role,
+      mfa_enabled: Boolean(account.mfa_enabled),
+    };
     next();
   });
 };
@@ -52,4 +57,16 @@ const requireRole = (...roles) => {
   };
 };
 
-module.exports = { verifyToken, requireRole, loadAccount, LOCKED_MESSAGE };
+// Admin phải bật đăng nhập 2 bước mới dùng được API quản trị (cài đặt MFA ở /api/auth/mfa/*)
+const requireMfa = (req, res, next) => {
+  if (!req.user?.mfa_enabled) {
+    return res.status(403).json({
+      status: "error",
+      code: "MFA_SETUP_REQUIRED",
+      message: "Quản trị viên phải bật đăng nhập 2 bước trong trang Hồ sơ trước khi dùng trang quản trị",
+    });
+  }
+  next();
+};
+
+module.exports = { verifyToken, requireRole, requireMfa, loadAccount, LOCKED_MESSAGE };

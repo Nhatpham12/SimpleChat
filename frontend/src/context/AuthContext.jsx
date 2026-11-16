@@ -50,15 +50,16 @@ export const AuthProvider = ({ children }) => {
     return data.user;
   };
 
-  // Tài khoản bật đăng nhập 2 bước: trả về { mfaToken, email } để trang đăng nhập hỏi mã
+  // Tài khoản bật đăng nhập 2 bước: trả về { mfaToken } để trang đăng nhập hỏi mã.
+  // mfaToken chỉ giữ trong state của trang, không lưu localStorage.
   const login = async (username, password, remember = true) => {
     const res = await authAPI.login({ username, password, remember });
-    if (res.data.code === "MFA_REQUIRED") return { mfa: res.data.data };
+    if (res.data.code === "MFA_REQUIRED") return { mfaToken: res.data.data.mfa_token };
     return { user: saveSession(res.data.data, remember) };
   };
 
-  const verifyLoginMfa = async (mfaToken, otp, remember) => {
-    const res = await authAPI.verifyLoginMfa({ mfaToken, otp });
+  const verifyLoginMfa = async (mfaToken, code, remember) => {
+    const res = await authAPI.verifyLoginMfa({ mfa_token: mfaToken, code });
     return saveSession(res.data.data, remember);
   };
 

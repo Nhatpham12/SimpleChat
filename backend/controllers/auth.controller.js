@@ -1,13 +1,16 @@
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
+const QRCode = require("qrcode");
 const { promisify } = require("util");
 const users = require("../models/users.model");
 const passwordResets = require("../models/passwordResets.model");
 const emailVerifications = require("../models/emailVerifications.model");
-const loginOtps = require("../models/loginOtps.model");
+const mfaRecoveryCodes = require("../models/mfaRecoveryCodes.model");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 const { issueOtp, checkOtp, OTP_TTL_MINUTES } = require("../common/otp");
 const { sendOtpMail } = require("../common/mailer");
+const mfa = require("../common/mfa");
 const { LOCKED_MESSAGE } = require("../middlewares/auth.middleware");
 
 const SALT_ROUND = 10;
@@ -15,16 +18,24 @@ const SALT_ROUND = 10;
 const getUserByEmail = promisify(users.getByEmail);
 const getUserByUsername = promisify(users.getByUsername);
 const getUserById = promisify(users.getById);
+const getMfaState = promisify(users.getMfaState);
 const getLockoutSeconds = promisify(users.getLockoutSeconds);
+const resetFailures = promisify(users.resetFailures);
 
-// Chống dò mật khẩu (lưu trong DB, bền qua restart và không phụ thuộc IP):
-// sai MAX_FAILED_LOGINS lần liên tiếp → khóa tạm LOCKOUT_MINUTES phút.
-const MAX_FAILED_LOGINS = 10;
-const LOCKOUT_MINUTES = 15;
+// Khóa tạm theo tài khoản (lưu DB, không phụ thuộc IP → chặn cả dò phân tán từ nhiều IP).
+// Ngưỡng mật khẩu cao hơn ngưỡng theo IP (5) để kẻ xấu khó cố tình khóa tài khoản người khác.
+const LOCK_RULES = {
+  login: { max: 10, minutes: 15 },
+  mfa: { max: 5, minutes: 15 },
+};
 
-// Token tạm cho bước 2 (MFA). Ký bằng khóa riêng nên KHÔNG dùng được như access token.
+// Token tạm cho bước 2 (MFA). Ký bằng khóa riêng + purpose nên KHÔNG dùng được như access token
+// (verifyToken và socket chỉ chấp nhận chữ ký bằng config.jwt.secret).
 const MFA_SECRET = `${config.jwt.secret}:mfa-challenge`;
-const MFA_TOKEN_TTL = "10m";
+const MFA_TOKEN_TTL = "5m";
+
+// Hash giả để vẫn chạy bcrypt khi không tìm thấy user → không lộ username qua thời gian phản hồi
+const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString("hex"), SALT_ROUND);
 
 const generateToken = (user, remember = false) => {
   return jwt.sign(
@@ -48,20 +59,21 @@ const publicUser = ({ password_hash, ...user }) => ({
   mfa_enabled: Boolean(user.mfa_enabled),
 });
 
-// "lan.nguyen@gmail.com" → "la***@gmail.com" (cho người đang đăng nhập biết mã gửi đi đâu)
-const maskEmail = (email) => {
-  const [name, domain] = String(email).split("@");
-  return `${name.slice(0, 2)}***@${domain}`;
+const recordFailure = (user_id, kind) =>
+  promisify(users.recordFailure)(user_id, kind, LOCK_RULES[kind].max, LOCK_RULES[kind].minutes);
+
+// "45 giây" / "15 phút" / "3 giờ"
+const formatWait = (seconds) => {
+  if (seconds >= 3600) return `${Math.ceil(seconds / 3600)} giờ`;
+  if (seconds >= 60) return `${Math.ceil(seconds / 60)} phút`;
+  return `${seconds} giây`;
 };
 
-const recordFailedLogin = (user_id) =>
-  promisify(users.recordFailedLogin)(user_id, MAX_FAILED_LOGINS, LOCKOUT_MINUTES);
-
-const lockedOut = (res, seconds) =>
+const lockedOut = (res, seconds, what) =>
   res.status(429).json({
     status: "error",
     code: "LOGIN_LOCKED",
-    message: `Tài khoản tạm khóa do nhập sai nhiều lần. Vui lòng thử lại sau ${Math.ceil(seconds / 60)} phút hoặc dùng "Quên mật khẩu".`,
+    message: `Bạn đã nhập sai ${what} quá nhiều lần. Vui lòng thử lại sau ${formatWait(seconds)}.`,
     data: { retryAfter: seconds },
   });
 
@@ -72,7 +84,7 @@ const mfaExpired = (res) =>
     message: "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại",
   });
 
-// Đọc user từ token bước 2; null nếu token sai / hết hạn / user không còn
+// Đọc user từ token bước 2; null nếu token sai / hết hạn / user không còn bật MFA
 const userFromMfaToken = async (mfaToken) => {
   let payload;
   try {
@@ -80,9 +92,48 @@ const userFromMfaToken = async (mfaToken) => {
   } catch {
     return null;
   }
+  if (payload.purpose !== "mfa") return null;
   const user = await getUserById(payload.user_id);
-  return user ? { user, remember: payload.remember === true } : null;
+  return user?.mfa_enabled ? { user, remember: payload.remember === true } : null;
 };
+
+// Kiểm tra mã 2 bước: mã 6 số từ app (chống dùng lại) hoặc mã khôi phục (mỗi mã dùng 1 lần).
+// Trả về true nếu hợp lệ; việc "đánh dấu đã dùng" làm nguyên tử ở DB.
+const verifyMfaCode = async (user_id, code) => {
+  const state = await getMfaState(user_id);
+  if (!state?.mfa_secret) return false;
+
+  const step = mfa.checkTotp(state.mfa_secret, state.mfa_last_step, code);
+  if (step !== null) return promisify(users.claimMfaStep)(user_id, step);
+
+  const recovery = mfa.normalizeRecoveryCode(code);
+  if (!recovery) return false;
+  for (const row of await promisify(mfaRecoveryCodes.getUnused)(user_id)) {
+    if (await bcrypt.compare(recovery, row.code_hash)) {
+      return promisify(mfaRecoveryCodes.markUsed)(row.id);
+    }
+  }
+  return false;
+};
+
+// Kiểm tra mã 2 bước có tính khóa tạm theo tài khoản. Trả về response lỗi đã gửi, hoặc null nếu mã đúng.
+const checkMfaOrRespond = async (res, user_id, code) => {
+  const lockSeconds = await getLockoutSeconds(user_id, "mfa");
+  if (lockSeconds > 0) return lockedOut(res, lockSeconds, "mã xác thực");
+
+  if (!(await verifyMfaCode(user_id, code))) {
+    await recordFailure(user_id, "mfa");
+    return res.status(400).json({ status: "error", message: "Mã xác thực không đúng hoặc đã được dùng" });
+  }
+  await resetFailures(user_id, "mfa");
+  return null;
+};
+
+const mfaUnavailable = (res) =>
+  res.status(503).json({
+    status: "error",
+    message: "Server chưa cấu hình đăng nhập 2 bước, vui lòng liên hệ quản trị viên",
+  });
 
 const normalizeEmail = (email) =>
   typeof email === "string" ? email.trim().toLowerCase() : "";
@@ -104,7 +155,7 @@ const sendOtp = async (model, user, purpose) => {
 const tooSoon = (res, retryAfter) =>
   res.status(429).json({
     status: "error",
-    message: `Vui lòng đợi ${retryAfter} giây trước khi gửi lại mã`,
+    message: `Vui lòng đợi ${formatWait(retryAfter)} trước khi gửi lại mã`,
     data: { retryAfter },
   });
 
@@ -175,19 +226,20 @@ const authController = {
 
     // Đang bị khóa tạm thì không kiểm tra mật khẩu (kẻ dò không biết đoán đúng hay sai)
     if (user) {
-      const lockSeconds = await getLockoutSeconds(user.user_id);
-      if (lockSeconds > 0) return lockedOut(res, lockSeconds);
+      const lockSeconds = await getLockoutSeconds(user.user_id, "login");
+      if (lockSeconds > 0) return lockedOut(res, lockSeconds, "mật khẩu");
     }
 
-    const isMatch =
-      user && (await bcrypt.compare(password, user.password_hash));
-    if (!isMatch) {
-      if (user) await recordFailedLogin(user.user_id);
+    // Luôn chạy bcrypt (hash giả khi không có user) để thời gian phản hồi như nhau
+    const passwordOk = await bcrypt.compare(password, user?.password_hash || DUMMY_HASH);
+    if (!user || !passwordOk) {
+      if (user) await recordFailure(user.user_id, "login");
       return res.status(401).json({
         status: "error",
         message: "Username hoặc password không đúng",
       });
     }
+    await resetFailures(user.user_id, "login");
 
     if (user.is_locked) {
       return res.status(403).json({
@@ -213,82 +265,109 @@ const authController = {
 
     const remember = req.body.remember === true;
     if (!user.mfa_enabled) {
-      await promisify(users.resetFailedLogins)(user.user_id);
       return loginResponse(res, user, "Đăng nhập thành công", remember);
     }
-    // Có MFA: chỉ reset bộ đếm sau khi nhập đúng mã, để kẻ đã biết mật khẩu
-    // không thể đăng nhập lại liên tục nhằm xóa số lần dò mã sai.
 
-    // Bước 2: gửi mã qua email. Mã cũ còn hạn (đang cooldown) thì dùng tiếp mã đó.
-    await sendOtp(loginOtps, user, "login");
-    const mfaToken = jwt.sign({ user_id: user.user_id, remember }, MFA_SECRET, {
+    // Bước 2: đúng mật khẩu nhưng chưa cấp token thật cho tới khi nhập đúng mã từ app.
+    // (Bộ đếm sai mã MFA riêng, chỉ reset khi nhập đúng mã → đăng nhập lại không xóa được.)
+    const mfa_token = jwt.sign({ user_id: user.user_id, purpose: "mfa", remember }, MFA_SECRET, {
       expiresIn: MFA_TOKEN_TTL,
     });
     res.json({
       status: "ok",
       code: "MFA_REQUIRED",
-      message: "Nhập mã đăng nhập vừa gửi tới email",
-      data: { mfaToken, email: maskEmail(user.email) },
+      message: "Nhập mã 6 số từ ứng dụng xác thực",
+      data: { mfa_token },
     });
   },
 
-  // POST /api/auth/login/mfa — bước 2: xác nhận mã đăng nhập gửi qua email
+  // POST /api/auth/mfa/verify — bước 2 khi đăng nhập: mã từ app hoặc mã khôi phục
   verifyLoginMfa: async (req, res) => {
-    const session = await userFromMfaToken(req.body.mfaToken);
+    const session = await userFromMfaToken(req.body.mfa_token);
     if (!session) return mfaExpired(res);
-    const { user, remember } = session;
+    if (await checkMfaOrRespond(res, session.user.user_id, req.body.code)) return;
+    await loginResponse(res, session.user, "Đăng nhập thành công", session.remember);
+  },
 
-    const lockSeconds = await getLockoutSeconds(user.user_id);
-    if (lockSeconds > 0) return lockedOut(res, lockSeconds);
-
-    const { error } = await checkOtp(loginOtps, user.user_id, req.body.otp);
-    if (error) {
-      // Nhập sai mã cũng tính vào ngưỡng khóa tạm (chặn dò mã khi đã lộ mật khẩu)
-      await recordFailedLogin(user.user_id);
-      return res.status(400).json({ status: "error", message: error });
+  // POST /api/auth/mfa/setup — tạo secret mới (chưa bật MFA), trả QR để quét bằng app
+  mfaSetup: async (req, res) => {
+    if (!mfa.isAvailable) return mfaUnavailable(res);
+    const user = await getUserById(req.user.user_id);
+    if (!user) {
+      return res.status(404).json({ status: "error", message: "Không tìm thấy user" });
     }
 
-    await promisify(users.resetFailedLogins)(user.user_id);
-    await loginResponse(res, user, "Đăng nhập thành công", remember);
+    const secret = mfa.authenticator.generateSecret();
+    if (!(await promisify(users.setMfaSecret)(user.user_id, mfa.encrypt(secret)))) {
+      return res.status(400).json({ status: "error", message: "Đăng nhập 2 bước đang bật" });
+    }
+
+    const otpauth = mfa.authenticator.keyuri(user.email, "SimpleChat", secret);
+    res.json({
+      status: "ok",
+      // secret dạng chữ để nhập tay khi không quét được QR
+      data: { qr: await QRCode.toDataURL(otpauth), secret },
+    });
   },
 
-  // POST /api/auth/login/mfa/resend — gửi lại mã đăng nhập
-  resendLoginMfa: async (req, res) => {
-    const session = await userFromMfaToken(req.body.mfaToken);
-    if (!session) return mfaExpired(res);
+  // POST /api/auth/mfa/enable — xác nhận mã đầu tiên từ app → bật MFA + cấp mã khôi phục (chỉ trả 1 lần)
+  mfaEnable: async (req, res) => {
+    if (!mfa.isAvailable) return mfaUnavailable(res);
+    const user_id = req.user.user_id;
+    const state = await getMfaState(user_id);
+    if (!state?.mfa_secret || state.mfa_enabled) {
+      return res.status(400).json({ status: "error", message: "Vui lòng bắt đầu cài đặt lại" });
+    }
 
-    const lockSeconds = await getLockoutSeconds(session.user.user_id);
-    if (lockSeconds > 0) return lockedOut(res, lockSeconds);
-
-    const retryAfter = await sendOtp(loginOtps, session.user, "login");
-    if (retryAfter) return tooSoon(res, retryAfter);
-    res.json({ status: "ok", message: "Đã gửi mã đăng nhập mới" });
-  },
-
-  // PUT /api/auth/mfa — bật/tắt đăng nhập 2 bước, phải nhập lại mật khẩu
-  setMfa: async (req, res) => {
-    const { enabled, password } = req.body;
-    if (typeof enabled !== "boolean" || typeof password !== "string" || !password) {
+    const step = mfa.checkTotp(state.mfa_secret, null, req.body.code);
+    if (step === null) {
       return res.status(400).json({
         status: "error",
-        message: "Vui lòng nhập mật khẩu hiện tại",
+        message: "Mã không đúng. Kiểm tra giờ trên điện thoại rồi nhập mã mới nhất",
       });
+    }
+
+    const codes = mfa.generateRecoveryCodes();
+    const hashes = await Promise.all(codes.map((code) => bcrypt.hash(code, SALT_ROUND)));
+    await promisify(mfaRecoveryCodes.replaceForUser)(user_id, hashes);
+    if (!(await promisify(users.enableMfa)(user_id, step))) {
+      return res.status(400).json({ status: "error", message: "Đăng nhập 2 bước đang bật" });
+    }
+
+    const user = await getUserById(user_id);
+    res.json({
+      status: "ok",
+      message: "Đã bật đăng nhập 2 bước",
+      data: { user: publicUser(user), recoveryCodes: codes.map(mfa.formatRecoveryCode) },
+    });
+  },
+
+  // POST /api/auth/mfa/disable — tắt MFA, phải có cả mật khẩu lẫn mã xác thực
+  mfaDisable: async (req, res) => {
+    const { password, code } = req.body;
+    if (typeof password !== "string" || !password || !code) {
+      return res.status(400).json({ status: "error", message: "Vui lòng nhập mật khẩu và mã xác thực" });
     }
 
     const user = await getUserById(req.user.user_id);
     if (!user) {
       return res.status(404).json({ status: "error", message: "Không tìm thấy user" });
     }
+    if (!user.mfa_enabled) {
+      return res.status(400).json({ status: "error", message: "Đăng nhập 2 bước đang tắt" });
+    }
     // 400 chứ không phải 401: axios coi 401 là hết phiên và đẩy người dùng ra trang đăng nhập
     if (!(await bcrypt.compare(password, user.password_hash))) {
       return res.status(400).json({ status: "error", message: "Mật khẩu hiện tại không đúng" });
     }
+    if (await checkMfaOrRespond(res, user.user_id, code)) return;
 
-    await promisify(users.setMfaEnabled)(user.user_id, enabled);
+    await promisify(users.disableMfa)(user.user_id);
+    await promisify(mfaRecoveryCodes.replaceForUser)(user.user_id, []);
     res.json({
       status: "ok",
-      message: enabled ? "Đã bật đăng nhập 2 bước" : "Đã tắt đăng nhập 2 bước",
-      data: { user: publicUser({ ...user, mfa_enabled: enabled }) },
+      message: "Đã tắt đăng nhập 2 bước",
+      data: { user: publicUser({ ...user, mfa_enabled: false }) },
     });
   },
 

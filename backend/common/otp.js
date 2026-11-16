@@ -5,6 +5,8 @@ const config = require("../config");
 const OTP_TTL_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
 const MAX_ATTEMPTS = 5;
+// Giới hạn theo tài khoản (không theo IP): tối đa 10 mã mỗi 24 giờ cho mỗi loại mã
+const MAX_PER_DAY = 10;
 
 // Chỉ lưu HMAC của OTP trong DB, không lưu mã gốc
 const hashOtp = (otp) =>
@@ -19,6 +21,9 @@ const issueOtp = async (model, user_id) => {
       return { retryAfter: Math.ceil(RESEND_COOLDOWN_SECONDS - elapsed) };
     }
   }
+
+  const { total, retryAfter } = await promisify(model.countLastDay)(user_id);
+  if (total >= MAX_PER_DAY) return { retryAfter };
 
   const otp = crypto.randomInt(0, 1000000).toString().padStart(6, "0");
   const expires_at = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);

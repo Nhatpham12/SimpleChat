@@ -2,9 +2,10 @@ import api from "./axios";
 
 export const authAPI = {
   login: (data) => api.post("/auth/login", data),
-  verifyLoginMfa: (data) => api.post("/auth/login/mfa", data),
-  resendLoginMfa: (mfaToken) => api.post("/auth/login/mfa/resend", { mfaToken }),
-  setMfa: (data) => api.put("/auth/mfa", data),
+  verifyLoginMfa: (data) => api.post("/auth/mfa/verify", data),
+  mfaSetup: () => api.post("/auth/mfa/setup"),
+  mfaEnable: (code) => api.post("/auth/mfa/enable", { code }),
+  mfaDisable: (data) => api.post("/auth/mfa/disable", data),
   register: (data) => api.post("/auth/register", data),
   getMe: () => api.get("/auth/me"),
   logout: () => api.post("/auth/logout"),

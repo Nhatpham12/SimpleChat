@@ -35,10 +35,11 @@ function ProtectedRoute({ children }) {
   );
 }
 
-// Chỉ admin; server vẫn tự kiểm tra quyền ở mọi API /api/admin
+// Chỉ admin đã bật đăng nhập 2 bước; server vẫn tự kiểm tra ở mọi API /api/admin
 function AdminRoute({ children }) {
   const { user } = useAuth();
   if (user?.role !== "admin") return <Navigate to="/chat" replace />;
+  if (!user.mfa_enabled) return <Navigate to="/profile" replace state={{ mfaRequired: true }} />;
   return children;
 }
 
