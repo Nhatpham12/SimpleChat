@@ -149,15 +149,24 @@ users.getLockoutSeconds = (user_id, kind, callback) => {
 
 // Ghi nhận 1 lần sai; đủ maxFailures lần liên tiếp thì khóa tạm lockMinutes phút và đếm lại từ 0.
 // Trong SET của MySQL, vế phải đọc giá trị cũ của cột chưa được gán trước đó → cột "until" đặt trước.
+// callback(null, justLocked): justLocked = true nếu LẦN NÀY vừa kích hoạt khóa (để gửi cảnh báo 1 lần).
 users.recordFailure = (user_id, kind, maxFailures, lockMinutes, callback) => {
   const { count, until } = LOCK_COLUMNS[kind];
   const sqlString = `UPDATE Users
     SET ${until} = IF(${count} + 1 >= ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), ${until}),
         ${count} = IF(${count} + 1 >= ?, 0, ${count} + 1)
     WHERE user_id = ?`;
-  db.query(sqlString, [maxFailures, lockMinutes, maxFailures, user_id], (err, result) => {
+  db.query(sqlString, [maxFailures, lockMinutes, maxFailures, user_id], (err) => {
     if (err) return callback(err, null);
-    callback(null, result.affectedRows > 0);
+    // Vừa khóa khi: bộ đếm vừa reset về 0 VÀ thời điểm mở khóa nằm ở tương lai.
+    db.query(
+      `SELECT (${count} = 0 AND ${until} > NOW()) AS justLocked FROM Users WHERE user_id = ?`,
+      [user_id],
+      (err2, rows) => {
+        if (err2) return callback(err2, null);
+        callback(null, Boolean(rows[0]?.justLocked));
+      },
+    );
   });
 };
 

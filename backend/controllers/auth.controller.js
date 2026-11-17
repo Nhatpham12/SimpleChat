@@ -9,7 +9,8 @@ const mfaRecoveryCodes = require("../models/mfaRecoveryCodes.model");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 const { issueOtp, checkOtp, OTP_TTL_MINUTES } = require("../common/otp");
-const { sendOtpMail } = require("../common/mailer");
+const { sendOtpMail, sendLockAlertMail } = require("../common/mailer");
+const { validatePassword } = require("../common/passwordPolicy");
 const mfa = require("../common/mfa");
 const { LOCKED_MESSAGE } = require("../middlewares/auth.middleware");
 
@@ -233,7 +234,18 @@ const authController = {
     // Luôn chạy bcrypt (hash giả khi không có user) để thời gian phản hồi như nhau
     const passwordOk = await bcrypt.compare(password, user?.password_hash || DUMMY_HASH);
     if (!user || !passwordOk) {
-      if (user) await recordFailure(user.user_id, "login");
+      if (user) {
+        const justLocked = await recordFailure(user.user_id, "login");
+        // Khóa tài khoản có thể bị lợi dụng để DoS. Báo cho chủ tài khoản khi vừa bị khóa
+        // để họ biết và có thể đặt lại mật khẩu (reset gỡ khóa). Lỗi gửi mail không chặn luồng.
+        if (justLocked) {
+          try {
+            await sendLockAlertMail(user.email, LOCK_RULES.login.minutes);
+          } catch (err) {
+            console.error("Không gửi được email cảnh báo khóa tài khoản:", err.message);
+          }
+        }
+      }
       return res.status(401).json({
         status: "error",
         message: "Username hoặc password không đúng",
@@ -414,11 +426,9 @@ const authController = {
       });
     }
 
-    if (newPassword.length < 8) {
-      return res.status(400).json({
-        status: "error",
-        message: "Mật khẩu mới phải có ít nhất 8 ký tự",
-      });
+    const pwError = validatePassword(newPassword);
+    if (pwError) {
+      return res.status(400).json({ status: "error", message: pwError });
     }
 
     users.getById(req.user.user_id, (err, user) => {
@@ -577,11 +587,9 @@ const authController = {
         message: "Email, mã xác nhận và mật khẩu mới là bắt buộc",
       });
     }
-    if (typeof newPassword !== "string" || newPassword.length < 8) {
-      return res.status(400).json({
-        status: "error",
-        message: "Mật khẩu mới phải có ít nhất 8 ký tự",
-      });
+    const pwError = validatePassword(newPassword);
+    if (pwError) {
+      return res.status(400).json({ status: "error", message: pwError });
     }
 
     const user = await getUserByEmail(email);

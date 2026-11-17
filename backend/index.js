@@ -32,7 +32,9 @@ app.set("io", io);
 // do client tự gửi nên không giả mạo được. Đổi TRUST_PROXY nếu thay đổi số lớp proxy.
 app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 2));
 
-app.use(cors());
+// Chỉ cho phép origin trong CORS_ORIGIN (REST API trước đây mở cho mọi origin).
+// Dùng chung cấu hình với socket.io để không lệch nhau.
+app.use(cors(config.cors));
 app.use(express.json());
 app.use("/api", apiLimiter);
 

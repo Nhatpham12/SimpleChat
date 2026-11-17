@@ -30,31 +30,40 @@ const usersController = {
           .status(404)
           .json({ status: "error", message: "Không tìm thấy người dùng" });
       }
-      res.json({ status: "ok", data: publicUser(result) });
+      // Xem người khác: chỉ lộ thông tin công khai (không email/role/trạng thái bảo mật).
+      // Xem chính mình (hoặc admin): trả đủ, trừ password_hash.
+      const isSelf = parseInt(id) === req.user.user_id || req.user.role === "admin";
+      const { user_id, username, avatar_url, status } = result;
+      const data = isSelf ? publicUser(result) : { user_id, username, avatar_url, status };
+      res.json({ status: "ok", data });
     });
   },
 
   // GET /api/users/search?q=keyword
   search: (req, res) => {
-    const { q } = req.query;
-    if (!q || q.trim().length === 0) {
+    const term = (req.query.q || "").trim();
+    // Yêu cầu tối thiểu 2 ký tự để hạn chế quét liệt kê người dùng
+    if (term.length < 2) {
       return res
         .status(400)
-        .json({ status: "error", message: "Từ khóa tìm kiếm là bắt buộc" });
+        .json({ status: "error", message: "Từ khóa tìm kiếm phải có ít nhất 2 ký tự" });
     }
 
     const db = require("../common/connect");
     const userId = req.user.user_id;
+    // KHÔNG trả email/role của người khác (chống thu thập PII). Email chỉ dùng để
+    // tìm theo ĐÚNG địa chỉ (không substring) nên không thể dùng làm khóa dò hàng loạt.
     // Kèm trạng thái kết bạn với người đang tìm: none | outgoing | incoming | friends
-    const sqlString = `SELECT u.user_id, u.username, u.email, u.role, u.avatar_url, u.status, u.created_at, u.updated_at,
+    const sqlString = `SELECT u.user_id, u.username, u.avatar_url, u.status,
         uc.contact_id, uc.status AS contact_status, uc.user_id AS contact_requester_id
       FROM Users u
       LEFT JOIN UserContacts uc
         ON (uc.user_id = ? AND uc.friend_id = u.user_id) OR (uc.friend_id = ? AND uc.user_id = u.user_id)
-      WHERE (u.username LIKE ? OR u.email LIKE ?) AND u.user_id <> ?
+      WHERE (u.username LIKE ? OR u.email = ?) AND u.user_id <> ?
       LIMIT 20`;
-    const keyword = `%${q.trim().replace(/[\\%_]/g, "\\$&")}%`;
-    db.query(sqlString, [userId, userId, keyword, keyword, userId], (err, result) => {
+    const keyword = `%${term.replace(/[\\%_]/g, "\\$&")}%`;
+    const exactEmail = term.toLowerCase();
+    db.query(sqlString, [userId, userId, keyword, exactEmail, userId], (err, result) => {
       if (err) {
         return res
           .status(500)

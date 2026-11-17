@@ -70,4 +70,34 @@ const sendWithTransporter = (to, subject, intro, otp, outro) =>
       </div>`,
   });
 
-module.exports = { sendOtpMail };
+// Cảnh báo khi tài khoản vừa bị khóa tạm do đăng nhập sai nhiều lần.
+// Không ném lỗi ra ngoài (gửi được hay không cũng không chặn luồng đăng nhập).
+const sendLockAlertMail = async (to, minutes) => {
+  const subject = "Cảnh báo bảo mật: tài khoản SimpleChat tạm khóa";
+  const body =
+    `Tài khoản SimpleChat của bạn vừa bị tạm khóa ${minutes} phút do có nhiều lần đăng nhập sai liên tiếp. ` +
+    `Nếu không phải bạn, ai đó có thể đang dò mật khẩu — hãy đặt lại mật khẩu (thao tác này cũng mở khóa ngay) ` +
+    `và cân nhắc bật đăng nhập 2 bước.`;
+
+  if (!transporter) {
+    if (config.app.nodeEnv !== "production") console.log(`[mail:dev] ${subject} → ${to}`);
+    return;
+  }
+  try {
+    await transporter.sendMail({
+      from,
+      to,
+      subject,
+      text: body,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto">
+          <h2 style="color:#dc2626">SimpleChat · Cảnh báo bảo mật</h2>
+          <p>${body}</p>
+        </div>`,
+    });
+  } catch (err) {
+    console.error("Gửi email cảnh báo khóa tài khoản thất bại:", err.message);
+  }
+};
+
+module.exports = { sendOtpMail, sendLockAlertMail };

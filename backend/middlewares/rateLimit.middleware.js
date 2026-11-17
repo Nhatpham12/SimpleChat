@@ -71,6 +71,12 @@ const friendRequestLimiter = make(
   "Bạn đã gửi quá nhiều lời mời kết bạn.",
 );
 
+// Tìm kiếm người dùng: chặn quét liệt kê (keyed theo user để không chặn nhầm cả mạng NAT)
+const userSearchLimiter = make(
+  { windowMs: MINUTE, limit: 30, keyGenerator: (req) => `user:${req.user?.user_id ?? ipKeyGenerator(req.ip)}` },
+  "Bạn tìm kiếm quá nhanh.",
+);
+
 // Giới hạn gửi tin nhắn qua socket: tối đa `limit` tin trong `windowMs` cho mỗi kết nối
 const createSocketLimiter = (limit = 20, windowMs = 10 * 1000) => {
   const stamps = [];
@@ -92,5 +98,6 @@ module.exports = {
   otpVerifyLimiter,
   changePasswordLimiter,
   friendRequestLimiter,
+  userSearchLimiter,
   createSocketLimiter,
 };

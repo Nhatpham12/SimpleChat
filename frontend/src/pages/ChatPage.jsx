@@ -945,7 +945,7 @@ export default function ChatPage() {
                   <UserAvatar user={u} size={36} showStatus isOnline={onlineUsers.includes(u.user_id)} />
                   <div className="person-info">
                     <span className="person-name">{u.username}</span>
-                    <span className="person-sub">{u.email}</span>
+                    {u.relation === "friends" && <span className="person-sub">Bạn bè</span>}
                   </div>
                   <div className="person-action">
                     {u.relation === "friends" && (

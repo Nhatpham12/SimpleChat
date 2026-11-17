@@ -1,3 +1,5 @@
+const { validatePassword } = require("../common/passwordPolicy");
+
 const validateLogin = (req, res, next) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -50,11 +52,9 @@ const validateRegister = (req, res, next) => {
       .status(400)
       .json({ status: "error", message: "Email không hợp lệ" });
   }
-  if (password.length < 8) {
-    return res.status(400).json({
-      status: "error",
-      message: "Password phải có ít nhất 8 ký tự",
-    });
+  const pwError = validatePassword(password);
+  if (pwError) {
+    return res.status(400).json({ status: "error", message: pwError });
   }
   if (confirmPassword && password !== confirmPassword) {
     return res.status(400).json({
@@ -114,11 +114,9 @@ const validateChangePassword = (req, res, next) => {
       message: "Mật khẩu phải là chuỗi",
     });
   }
-  if (newPassword.length < 8) {
-    return res.status(400).json({
-      status: "error",
-      message: "Mật khẩu mới phải có ít nhất 8 ký tự",
-    });
+  const pwError = validatePassword(newPassword);
+  if (pwError) {
+    return res.status(400).json({ status: "error", message: pwError });
   }
   if (oldPassword === newPassword) {
     return res.status(400).json({
