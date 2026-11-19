@@ -64,5 +64,7 @@ jobs:
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker compose pull backend frontend caddy
             docker compose up -d --remove-orphans
-            docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile || true
+            # Caddyfile mount dạng 1 file: scp ghi file mới (inode mới) nên container vẫn thấy bản cũ,
+            # "caddy reload" không đủ → restart để nạp Caddyfile mới (gián đoạn ~1-2 giây).
+            docker compose restart caddy
             docker image prune -f
