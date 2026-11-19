@@ -59,6 +59,12 @@ const COLUMNS = [
     definition: "DATETIME DEFAULT NULL AFTER mfa_failed",
   },
   {
+    // Tăng khi đổi/đặt lại mật khẩu → JWT cũ (claim "tv") bị từ chối
+    table: "Users",
+    column: "token_version",
+    definition: "INT NOT NULL DEFAULT 0 AFTER mfa_enabled",
+  },
+  {
     table: "EmailVerifications",
     column: "attempts",
     definition: "INT NOT NULL DEFAULT 0 AFTER is_used",

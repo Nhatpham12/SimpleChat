@@ -7,6 +7,7 @@ import { authAPI } from "../api/auth";
 import UserAvatar from "../components/UserAvatar";
 import PageHeader from "../components/PageHeader";
 import MfaSettings from "../components/MfaSettings";
+import { replaceToken } from "../utils/session";
 
 const AVATAR_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
@@ -20,7 +21,10 @@ export default function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [username, setUsername] = useState(user?.username || "");
   const [email, setEmail] = useState(user?.email || "");
-  const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || "");
+  const [currentPassword, setCurrentPassword] = useState("");
+  // Đổi email đang chờ xác nhận OTP: { token, email }
+  const [emailChange, setEmailChange] = useState(null);
+  const [emailOtp, setEmailOtp] = useState("");
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -29,14 +33,27 @@ export default function ProfilePage() {
   const [uploadProgress, setUploadProgress] = useState(null);
   const avatarInputRef = useRef(null);
 
+  const emailChanged = email.trim().toLowerCase() !== (user?.email || "").toLowerCase();
+
+  // Đổi email cần mật khẩu hiện tại, rồi nhập mã OTP gửi tới email mới mới có hiệu lực
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await usersAPI.updateProfile(user.user_id, { username, email });
-      updateUser({ ...user, username, email });
+      const res = await usersAPI.updateProfile(user.user_id, {
+        username,
+        email,
+        ...(emailChanged && { password: currentPassword }),
+      });
+      updateUser({ ...user, username: username.trim() });
       setEditing(false);
-      toast.success("Đã lưu thông tin hồ sơ");
+      setCurrentPassword("");
+      if (res.data.code === "EMAIL_CHANGE_PENDING") {
+        setEmailChange({ token: res.data.data.email_token, email: email.trim().toLowerCase() });
+        toast.success("Đã gửi mã xác nhận tới email mới");
+      } else {
+        toast.success("Đã lưu thông tin hồ sơ");
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || "Chưa lưu được hồ sơ");
     } finally {
@@ -44,16 +61,17 @@ export default function ProfilePage() {
     }
   };
 
-  const handleUpdateAvatar = async (e) => {
+  const handleConfirmEmail = async (e) => {
     e.preventDefault();
-    if (!avatarUrl.trim()) return;
     setLoading(true);
     try {
-      await usersAPI.updateAvatar(user.user_id, avatarUrl.trim());
-      updateUser({ ...user, avatar_url: avatarUrl.trim() });
-      toast.success("Đã đổi ảnh đại diện");
+      const res = await usersAPI.confirmEmailChange({ email_token: emailChange.token, otp: emailOtp });
+      updateUser({ ...user, email: res.data.data.email });
+      setEmailChange(null);
+      setEmailOtp("");
+      toast.success("Đã đổi email");
     } catch (err) {
-      toast.error(err.response?.data?.message || "Chưa đổi được ảnh đại diện");
+      toast.error(err.response?.data?.message || "Chưa xác nhận được email");
     } finally {
       setLoading(false);
     }
@@ -88,7 +106,6 @@ export default function ProfilePage() {
       const res = await usersAPI.uploadAvatar(preview.file, setUploadProgress);
       const url = res.data.data.avatar_url;
       updateUser({ ...user, avatar_url: url });
-      setAvatarUrl(url);
       cancelPreview();
       toast.success("Đã đổi ảnh đại diện");
     } catch (err) {
@@ -108,8 +125,11 @@ export default function ProfilePage() {
     }
     setLoading(true);
     try {
-      await authAPI.changePassword({ oldPassword, newPassword });
-      toast.success("Đã đổi mật khẩu");
+      const res = await authAPI.changePassword({ oldPassword, newPassword });
+      // Server thu hồi mọi token cũ: lưu token mới rồi làm mới user để socket kết nối lại bằng token mới
+      replaceToken(res.data.data.token);
+      updateUser({ ...user });
+      toast.success("Đã đổi mật khẩu, các thiết bị khác đã bị đăng xuất");
       setShowPasswordForm(false);
       setOldPassword("");
       setNewPassword("");
@@ -180,22 +200,6 @@ export default function ProfilePage() {
               </button>
             </div>
           )}
-
-          <details className="avatar-url-option">
-            <summary>Hoặc dùng đường dẫn ảnh</summary>
-            <form className="inline-form" onSubmit={handleUpdateAvatar}>
-              <input
-                type="url"
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-                placeholder="Dán đường dẫn ảnh (https://...)"
-                className="input"
-              />
-              <button type="submit" className="btn btn-outline" disabled={loading || !avatarUrl.trim()}>
-                Đổi ảnh
-              </button>
-            </form>
-          </details>
         </section>
 
         <section className="panel">
@@ -237,12 +241,35 @@ export default function ProfilePage() {
                 <label htmlFor="pf-email">Email</label>
                 <input id="pf-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
               </div>
+              {emailChanged && (
+                <div className="form-group">
+                  <label htmlFor="pf-current">Mật khẩu hiện tại (để đổi email)</label>
+                  <input id="pf-current" type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
+                </div>
+              )}
               <div className="form-actions">
                 <button type="button" onClick={() => setEditing(false)} className="btn btn-ghost">
                   Hủy
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={loading}>
                   {loading ? "Đang lưu..." : "Lưu thay đổi"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {emailChange && (
+            <form onSubmit={handleConfirmEmail} className="stack-form">
+              <div className="form-group">
+                <label htmlFor="pf-email-otp">Mã xác nhận đã gửi tới {emailChange.email}</label>
+                <input id="pf-email-otp" type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={emailOtp} onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, ""))} required />
+              </div>
+              <div className="form-actions">
+                <button type="button" onClick={() => setEmailChange(null)} className="btn btn-ghost">
+                  Hủy
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={loading || emailOtp.length !== 6}>
+                  Xác nhận email
                 </button>
               </div>
             </form>

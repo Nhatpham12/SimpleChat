@@ -2,20 +2,20 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
-const jwt = require("jsonwebtoken");
 require("dotenv").config();
 
 const pool = require("./common/connect");
 const config = require("./config");
 const migrate = require("./seeders/migrate");
 const adminSeeder = require("./seeders/adminSeeder");
-const { verifyToken, loadAccount } = require("./middlewares/auth.middleware");
+const { verifyToken, verifyJwt, isTokenCurrent, loadAccount } = require("./middlewares/auth.middleware");
 const { apiLimiter } = require("./middlewares/rateLimit.middleware");
 const { globalErrorHandler } = require("./middlewares/errorHandler.middleware");
 const apiRouter = require("./routers");
 const { setupSocket } = require("./socket");
 
 const app = express();
+app.disable("x-powered-by");
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -68,7 +68,7 @@ io.use((socket, next) => {
 
   let decoded;
   try {
-    decoded = jwt.verify(token, config.jwt.secret);
+    decoded = verifyJwt(token);
   } catch (err) {
     return next(new Error("Authentication error: Invalid token"));
   }
@@ -77,6 +77,7 @@ io.use((socket, next) => {
   loadAccount(decoded.user_id, (err, account) => {
     if (err) return next(new Error("Authentication error"));
     if (!account || account.is_locked) return next(new Error("Authentication error: Account locked"));
+    if (!isTokenCurrent(decoded, account)) return next(new Error("Authentication error: Invalid token"));
     socket.user = { ...decoded, username: account.username, role: account.role };
     next();
   });

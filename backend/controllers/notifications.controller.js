@@ -24,27 +24,6 @@ const notificationsController = {
     });
   },
 
-  // POST /api/notifications — tạo thông báo mới (dùng nội bộ hoặc admin)
-  create: (req, res) => {
-    const { user_id, type, content, reference_id } = req.body;
-
-    if (!user_id || !type) {
-      return res.status(400).json({ status: "error", message: "user_id và type là bắt buộc" });
-    }
-
-    const validTypes = ["friend_request", "friend_accept", "message", "system", "group_invite"];
-    if (!validTypes.includes(type)) {
-      return res.status(400).json({ status: "error", message: `Type phải là một trong: ${validTypes.join(", ")}` });
-    }
-
-    notifications.insert({ user_id, type, content, reference_id }, (err, notificationId) => {
-      if (err) {
-        return res.status(500).json({ status: "error", message: "Lỗi khi tạo thông báo" });
-      }
-      res.status(201).json({ status: "ok", message: "Tạo thông báo thành công", data: { notification_id: notificationId } });
-    });
-  },
-
   // PATCH /api/notifications/:id/seen — đánh dấu 1 thông báo đã đọc
   markAsSeen: (req, res) => {
     const { id } = req.params;

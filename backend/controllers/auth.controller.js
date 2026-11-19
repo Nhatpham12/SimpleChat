@@ -44,12 +44,22 @@ const generateToken = (user, remember = false) => {
       user_id: user.user_id,
       username: user.username,
       role: user.role,
+      // Phiên bản token: đổi mật khẩu → tăng ở DB → token cũ bị từ chối (auth.middleware)
+      tv: user.token_version ?? 0,
+      // Giữ lựa chọn "ghi nhớ" để token cấp lại (vd. sau khi đổi mật khẩu) có cùng thời hạn
+      remember,
     },
     config.jwt.secret,
     {
       expiresIn: remember ? config.jwt.rememberExpiresIn : config.jwt.expiresIn,
     },
   );
+};
+
+// Ngắt realtime của mọi phiên đang mở (socket chỉ xác thực lúc kết nối);
+// client hợp lệ tự kết nối lại bằng token mới.
+const disconnectSessions = (req, userId) => {
+  req.app.get("io")?.in(`user:${userId}`).disconnectSockets(true);
 };
 
 // Bỏ password_hash trước khi trả user về client
@@ -89,7 +99,7 @@ const mfaExpired = (res) =>
 const userFromMfaToken = async (mfaToken) => {
   let payload;
   try {
-    payload = jwt.verify(String(mfaToken || ""), MFA_SECRET);
+    payload = jwt.verify(String(mfaToken || ""), MFA_SECRET, { algorithms: config.jwt.algorithms });
   } catch {
     return null;
   }
@@ -416,10 +426,11 @@ const authController = {
     });
   },
 
-  changePassword: (req, res) => {
+  // PUT /api/auth/change-password — đổi mật khẩu: mọi phiên khác bị đăng xuất, phiên hiện tại nhận token mới
+  changePassword: async (req, res) => {
     const { oldPassword, newPassword } = req.body;
 
-    if (!oldPassword || !newPassword) {
+    if (typeof oldPassword !== "string" || typeof newPassword !== "string" || !oldPassword || !newPassword) {
       return res.status(400).json({
         status: "error",
         message: "Vui lòng nhập đầy đủ mật khẩu cũ và mới",
@@ -431,70 +442,23 @@ const authController = {
       return res.status(400).json({ status: "error", message: pwError });
     }
 
-    users.getById(req.user.user_id, (err, user) => {
-      if (err) {
-        return res
-          .status(500)
-          .json({ status: "error", message: "Lỗi khi lấy thông tin user" });
-      }
+    const user = await getUserById(req.user.user_id);
+    if (!user) {
+      return res.status(404).json({ status: "error", message: "Không tìm thấy user" });
+    }
+    // 400 chứ không phải 401: axios coi 401 là hết phiên và đẩy người dùng ra trang đăng nhập
+    if (!(await bcrypt.compare(oldPassword, user.password_hash))) {
+      return res.status(400).json({ status: "error", message: "Mật khẩu cũ không đúng" });
+    }
 
-      if (!user) {
-        return res
-          .status(404)
-          .json({ status: "error", message: "Không tìm thấy user" });
-      }
+    const password_hash = await bcrypt.hash(newPassword, SALT_ROUND);
+    await promisify(users.updatePassword)(user.user_id, password_hash);
+    disconnectSessions(req, user.user_id);
 
-      bcrypt.compare(oldPassword, user.password_hash, (err, isMatch) => {
-        if (err) {
-          return res
-            .status(500)
-            .json({ status: "error", message: "Lỗi khi xác thực password" });
-        }
-
-        if (!isMatch) {
-          return res
-            .status(401)
-            .json({ status: "error", message: "Mật khẩu cũ không đúng" });
-        }
-
-        bcrypt.hash(newPassword, SALT_ROUND, (err, password_hash) => {
-          if (err) {
-            return res
-              .status(500)
-              .json({ status: "error", message: "Lỗi khi mã hóa password" });
-          }
-
-          users.update(
-            user.user_id,
-            {
-              username: user.username,
-              email: user.email,
-              password_hash,
-              avatar_url: user.avatar_url,
-            },
-            (err, success) => {
-              if (err) {
-                return res.status(500).json({
-                  status: "error",
-                  message: "Lỗi khi cập nhật password",
-                });
-              }
-
-              if (!success) {
-                return res.status(500).json({
-                  status: "error",
-                  message: "Cập nhật mật khẩu thất bại",
-                });
-              }
-
-              res.json({
-                status: "ok",
-                message: "Đổi mật khẩu thành công",
-              });
-            },
-          );
-        });
-      });
+    res.json({
+      status: "ok",
+      message: "Đổi mật khẩu thành công",
+      data: { token: generateToken({ ...user, token_version: user.token_version + 1 }, req.user.remember === true) },
     });
   },
 
@@ -604,6 +568,7 @@ const authController = {
 
     const password_hash = await bcrypt.hash(newPassword, SALT_ROUND);
     await promisify(users.updatePassword)(user.user_id, password_hash);
+    disconnectSessions(req, user.user_id);
     // Nhận được OTP qua email cũng chứng minh sở hữu email
     if (!user.is_verified) await promisify(users.setVerified)(user.user_id);
 

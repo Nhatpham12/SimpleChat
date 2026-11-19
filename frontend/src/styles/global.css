@@ -2284,22 +2284,6 @@ mark {
   gap: 8px;
 }
 
-.avatar-url-option {
-  margin-top: 14px;
-}
-
-.avatar-url-option summary {
-  margin-bottom: 10px;
-  font-size: 13px;
-  color: var(--text-2);
-  cursor: pointer;
-}
-
-.inline-form {
-  display: flex;
-  gap: 8px;
-}
-
 .info-list {
   display: flex;
   flex-direction: column;
@@ -2820,10 +2804,6 @@ mark {
 @media (max-width: 480px) {
   .form-row {
     grid-template-columns: 1fr;
-  }
-
-  .inline-form {
-    flex-direction: column;
   }
 
   .profile-hero {

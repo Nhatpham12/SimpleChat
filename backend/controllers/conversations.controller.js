@@ -5,6 +5,23 @@ const db = require("../common/connect");
 const users = require("../models/users.model");
 const { deliverMessage } = require("../common/deliverMessage");
 
+// Ảnh nhóm chỉ nhận ảnh trên Cloudinary của app (chặn ảnh theo dõi IP người xem từ server lạ).
+// So khớp hostname/đường dẫn sau khi parse, không dùng startsWith trên chuỗi thô.
+const isOwnCloudinaryUrl = (value) => {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "res.cloudinary.com" &&
+      Boolean(cloudName) &&
+      url.pathname.startsWith(`/${cloudName}/`)
+    );
+  } catch {
+    return false;
+  }
+};
+
 // Sau khi 1 người rời / bị xóa khỏi nhóm: nhóm luôn còn ít nhất 1 admin, nhóm trống thì xóa luôn
 const ensureGroupHealthy = (conversationId, callback) => {
   participants.getByConversationId(conversationId, (err, members) => {
@@ -254,6 +271,13 @@ const conversationsController = {
     const { id } = req.params;
     const userId = req.user.user_id;
     const { conversation_name, avatar_url } = req.body;
+
+    if (conversation_name !== undefined && (typeof conversation_name !== "string" || conversation_name.length > 100)) {
+      return res.status(400).json({ status: "error", message: "Tên nhóm tối đa 100 ký tự" });
+    }
+    if (avatar_url !== undefined && avatar_url !== null && !isOwnCloudinaryUrl(avatar_url)) {
+      return res.status(400).json({ status: "error", message: "Ảnh nhóm không hợp lệ" });
+    }
 
     conversations.getById(id, (err, conversation) => {
       if (err) {

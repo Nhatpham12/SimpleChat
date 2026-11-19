@@ -28,7 +28,8 @@ CREATE TABLE Users (
     lockout_until DATETIME DEFAULT NULL,
     mfa_failed    INT NOT NULL DEFAULT 0,
     mfa_locked_until DATETIME DEFAULT NULL,
-    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    token_version INT NOT NULL DEFAULT 0,       -- tăng khi đổi mật khẩu → JWT cũ hết hiệu lực
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 

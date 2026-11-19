@@ -160,19 +160,19 @@ const messagesController = {
   // POST /api/messages — gửi tin nhắn
   create: (req, res) => {
     const userId = req.user.user_id;
-    const { conversation_id, content, type } = req.body;
+    // Client chỉ gửi tin văn bản: ảnh/tệp đi qua /api/attachments, tin "system" chỉ server tạo
+    // (không cho người dùng giả mạo thông báo hệ thống trong nhóm).
+    const { conversation_id, content } = req.body;
+    const msgType = "text";
 
     if (!conversation_id) {
       return res.status(400).json({ status: "error", message: "conversation_id là bắt buộc" });
     }
-    if (content === undefined || content === null || (typeof content === "string" && content.trim().length === 0)) {
+    if (typeof content !== "string" || content.trim().length === 0) {
       return res.status(400).json({ status: "error", message: "Content không được để trống" });
     }
-
-    const msgType = type || "text";
-    const validTypes = ["text", "image", "file", "system"];
-    if (!validTypes.includes(msgType)) {
-      return res.status(400).json({ status: "error", message: `Type phải là một trong: ${validTypes.join(", ")}` });
+    if (content.length > 5000) {
+      return res.status(400).json({ status: "error", message: "Tin nhắn quá dài (tối đa 5000 ký tự)" });
     }
 
     // Kiểm tra user là thành viên (và là bạn bè nếu chat 1-1)

@@ -8,11 +8,17 @@ const LOCKED_MESSAGE = "Tài khoản của bạn đã bị khóa. Liên hệ qu�
 // thể tin role trong token (admin đổi quyền hoặc khóa phải có hiệu lực ngay).
 const loadAccount = (userId, callback) => {
   db.query(
-    "SELECT user_id, username, role, is_locked, mfa_enabled FROM Users WHERE user_id = ?",
+    "SELECT user_id, username, role, is_locked, mfa_enabled, token_version FROM Users WHERE user_id = ?",
     [userId],
     (err, rows) => callback(err, rows?.[0] || null),
   );
 };
+
+// Verify chữ ký JWT (chỉ HS256). Ném lỗi nếu token sai / hết hạn.
+const verifyJwt = (token) => jwt.verify(token, config.jwt.secret, { algorithms: config.jwt.algorithms });
+
+// Token cấp trước lần đổi mật khẩu gần nhất bị từ chối. Token cũ chưa có claim "tv" tính là 0.
+const isTokenCurrent = (decoded, account) => (decoded.tv ?? 0) === account.token_version;
 
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -23,7 +29,7 @@ const verifyToken = (req, res, next) => {
   const token = authHeader.split(" ")[1];
   let decoded;
   try {
-    decoded = jwt.verify(token, config.jwt.secret);
+    decoded = verifyJwt(token);
   } catch (err) {
     return res.status(401).json({ status: "error", message: "Invalid or expired token" });
   }
@@ -34,6 +40,9 @@ const verifyToken = (req, res, next) => {
     }
     if (!account) {
       return res.status(401).json({ status: "error", message: "Tài khoản không còn tồn tại" });
+    }
+    if (!isTokenCurrent(decoded, account)) {
+      return res.status(401).json({ status: "error", message: "Phiên đăng nhập đã hết hiệu lực, vui lòng đăng nhập lại" });
     }
     if (account.is_locked) {
       return res.status(401).json({ status: "error", code: "ACCOUNT_LOCKED", message: LOCKED_MESSAGE });
@@ -69,4 +78,4 @@ const requireMfa = (req, res, next) => {
   next();
 };
 
-module.exports = { verifyToken, requireRole, requireMfa, loadAccount, LOCKED_MESSAGE };
+module.exports = { verifyToken, verifyJwt, isTokenCurrent, requireRole, requireMfa, loadAccount, LOCKED_MESSAGE };

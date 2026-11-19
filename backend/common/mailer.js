@@ -26,6 +26,10 @@ const PURPOSES = {
     subject: "Mã đặt lại mật khẩu SimpleChat",
     intro: "Bạn vừa yêu cầu đặt lại mật khẩu SimpleChat. Mã xác nhận của bạn là:",
   },
+  change_email: {
+    subject: "Mã xác nhận đổi email SimpleChat",
+    intro: "Bạn vừa yêu cầu dùng email này cho tài khoản SimpleChat. Mã xác nhận của bạn là:",
+  },
 };
 
 const sendOtpMail = async (to, otp, purpose, ttlMinutes) => {
@@ -52,6 +56,7 @@ const mailError = (reason) => {
   console.error("Gửi email thất bại:", reason);
   const err = new Error("Không gửi được email, vui lòng thử lại sau");
   err.statusCode = 503;
+  err.expose = true; // thông báo an toàn để hiện cho người dùng
   return err;
 };
 
@@ -70,15 +75,9 @@ const sendWithTransporter = (to, subject, intro, otp, outro) =>
       </div>`,
   });
 
-// Cảnh báo khi tài khoản vừa bị khóa tạm do đăng nhập sai nhiều lần.
-// Không ném lỗi ra ngoài (gửi được hay không cũng không chặn luồng đăng nhập).
-const sendLockAlertMail = async (to, minutes) => {
-  const subject = "Cảnh báo bảo mật: tài khoản SimpleChat tạm khóa";
-  const body =
-    `Tài khoản SimpleChat của bạn vừa bị tạm khóa ${minutes} phút do có nhiều lần đăng nhập sai liên tiếp. ` +
-    `Nếu không phải bạn, ai đó có thể đang dò mật khẩu — hãy đặt lại mật khẩu (thao tác này cũng mở khóa ngay) ` +
-    `và cân nhắc bật đăng nhập 2 bước.`;
-
+// Email cảnh báo bảo mật (nội dung cố định, không chứa dữ liệu người dùng nhập).
+// Không ném lỗi ra ngoài: gửi được hay không cũng không chặn luồng chính.
+const sendSecurityAlert = async (to, subject, body) => {
   if (!transporter) {
     if (config.app.nodeEnv !== "production") console.log(`[mail:dev] ${subject} → ${to}`);
     return;
@@ -96,8 +95,27 @@ const sendLockAlertMail = async (to, minutes) => {
         </div>`,
     });
   } catch (err) {
-    console.error("Gửi email cảnh báo khóa tài khoản thất bại:", err.message);
+    console.error(`Gửi email "${subject}" thất bại:`, err.message);
   }
 };
 
-module.exports = { sendOtpMail, sendLockAlertMail };
+// Cảnh báo khi tài khoản vừa bị khóa tạm do đăng nhập sai nhiều lần.
+const sendLockAlertMail = (to, minutes) =>
+  sendSecurityAlert(
+    to,
+    "Cảnh báo bảo mật: tài khoản SimpleChat tạm khóa",
+    `Tài khoản SimpleChat của bạn vừa bị tạm khóa ${minutes} phút do có nhiều lần đăng nhập sai liên tiếp. ` +
+      `Nếu không phải bạn, ai đó có thể đang dò mật khẩu — hãy đặt lại mật khẩu (thao tác này cũng mở khóa ngay) ` +
+      `và cân nhắc bật đăng nhập 2 bước.`,
+  );
+
+// Báo cho email CŨ khi email tài khoản vừa được đổi (phát hiện tài khoản bị chiếm)
+const sendEmailChangedMail = (to) =>
+  sendSecurityAlert(
+    to,
+    "Cảnh báo bảo mật: email tài khoản SimpleChat đã thay đổi",
+    "Email đăng nhập của tài khoản SimpleChat gắn với địa chỉ này vừa được đổi sang địa chỉ khác. " +
+      "Nếu không phải bạn, hãy liên hệ quản trị viên ngay.",
+  );
+
+module.exports = { sendOtpMail, sendLockAlertMail, sendEmailChangedMail };

@@ -40,6 +40,11 @@ export const saveSession = ({ token, user }, remember) => {
   write(storage, "user", JSON.stringify(user));
 };
 
+// Thay token của phiên hiện tại (vd. server cấp token mới sau khi đổi mật khẩu)
+export const replaceToken = (token) => {
+  write(activeStorage(), "token", token);
+};
+
 export const updateStoredUser = (user) => {
   write(activeStorage(), "user", JSON.stringify(user));
 };

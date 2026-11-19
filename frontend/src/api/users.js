@@ -6,7 +6,7 @@ export const usersAPI = {
   search: (q) => api.get(`/users/search?q=${encodeURIComponent(q)}`),
   getProfile: () => api.get("/users/profile"),
   updateProfile: (id, data) => api.put(`/users/${id}`, data),
-  updateAvatar: (id, avatar_url) => api.patch(`/users/${id}/avatar`, { avatar_url }),
+  confirmEmailChange: (data) => api.post("/users/me/email", data),
   // Content-Type multipart để axios không đổi FormData thành JSON; trình duyệt tự thêm boundary
   uploadAvatar: (file, onProgress) => {
     const form = new FormData();

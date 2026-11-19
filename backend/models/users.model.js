@@ -11,7 +11,7 @@ users.getAll = (callBack) => {
 };
 
 users.getById = (user_id, callBack) => {
-  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, mfa_enabled, created_at, updated_at
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, mfa_enabled, token_version, created_at, updated_at
     FROM Users
     WHERE user_id = ?`;
   db.query(sqlString, [user_id], (err, result) => {
@@ -21,7 +21,7 @@ users.getById = (user_id, callBack) => {
 };
 
 users.getByUsername = (username, callBack) => {
-  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, mfa_enabled, created_at, updated_at
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, mfa_enabled, token_version, created_at, updated_at
     FROM Users
     WHERE username = ?`;
   db.query(sqlString, [username], (err, result) => {
@@ -31,7 +31,7 @@ users.getByUsername = (username, callBack) => {
 };
 
 users.getByEmail = (email, callBack) => {
-  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, mfa_enabled, created_at, updated_at
+  const sqlString = `SELECT user_id, username, email, password_hash, role, avatar_url, status, is_verified, is_locked, mfa_enabled, token_version, created_at, updated_at
     FROM Users
     WHERE email = ?`;
   db.query(sqlString, [email], (err, result) => {
@@ -70,18 +70,15 @@ users.insert = (data, callback) => {
   });
 };
 
-users.update = (user_id, data, callback) => {
-  const sqlString = `UPDATE Users 
-    SET username = ?, email = ?, password_hash = ?, avatar_url = ?
-    WHERE user_id = ?`;
-  const values = [
-    data.username,
-    data.email,
-    data.password_hash,
-    data.avatar_url || null,
-    user_id,
-  ];
-  db.query(sqlString, values, (err, result) => {
+users.updateUsername = (user_id, username, callback) => {
+  db.query(`UPDATE Users SET username = ? WHERE user_id = ?`, [username, user_id], (err, result) => {
+    if (err) return callback(err, null);
+    callback(null, result.affectedRows > 0);
+  });
+};
+
+users.updateEmail = (user_id, email, callback) => {
+  db.query(`UPDATE Users SET email = ? WHERE user_id = ?`, [email, user_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);
   });
@@ -119,9 +116,12 @@ users.setVerified = (user_id, callback) => {
   });
 };
 
-// Đặt lại mật khẩu (qua OTP email) cũng gỡ khóa tạm do nhập sai nhiều lần
+// Đổi / đặt lại mật khẩu: gỡ khóa tạm do nhập sai nhiều lần và tăng token_version
+// để mọi JWT đã cấp trước đó (kể cả token bị lộ) hết hiệu lực ngay.
 users.updatePassword = (user_id, password_hash, callback) => {
-  const sqlString = `UPDATE Users SET password_hash = ?, failed_logins = 0, lockout_until = NULL WHERE user_id = ?`;
+  const sqlString = `UPDATE Users
+    SET password_hash = ?, failed_logins = 0, lockout_until = NULL, token_version = token_version + 1
+    WHERE user_id = ?`;
   db.query(sqlString, [password_hash, user_id], (err, result) => {
     if (err) return callback(err, null);
     callback(null, result.affectedRows > 0);
