@@ -28,10 +28,12 @@ const globalErrorHandler = (err, req, res, next) => {
       .json({ status: "error", message: "Token đã hết hạn" });
   }
 
-  // Lỗi không xác định (default)
-  res.status(err.statusCode || 500).json({
+  // Lỗi 4xx (multer, body-parser...) có thông báo dành cho người dùng; lỗi 5xx chỉ trả thông báo chung,
+  // chi tiết đã log ở trên (không lộ thông tin nội bộ ra client).
+  const status = err.statusCode || err.status || 500;
+  res.status(status).json({
     status: "error",
-    message: err.message || "Internal Server Error",
+    message: status < 500 || err.expose ? err.message : "Lỗi máy chủ, vui lòng thử lại sau",
   });
 };
 

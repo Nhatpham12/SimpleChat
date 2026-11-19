@@ -1,5 +1,20 @@
 simplechat.io.vn {
 	encode gzip
+
+	header {
+		# Chỉ dùng HTTPS (chống hạ cấp xuống HTTP / MITM)
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Chống clickjacking: không cho nhúng trang vào iframe
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# CSP đang ở chế độ Report-Only (chỉ báo vi phạm ở console, chưa chặn) để kiểm tra
+		# không làm hỏng giao diện; ổn định rồi đổi tên header thành Content-Security-Policy.
+		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https://res.cloudinary.com; connect-src 'self' wss://simplechat.io.vn; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
 	reverse_proxy frontend:80
 }
 
